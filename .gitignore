@@ -1,0 +1,48 @@
+# ── Credenciais — NUNCA subir ─────────────────────────────────────────────────
+backend/.env
+*.env
+.env.*
+!.env.example
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# ── Node / Frontend ───────────────────────────────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/build/
+.npm/
+*.log
+
+# ── Docker volumes / dados locais ─────────────────────────────────────────────
+postgres_data/
+redis_data/
+
+# ── Playwright sessões ────────────────────────────────────────────────────────
+/tmp/pw_sessions/
+*.png
+*.jpg
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini

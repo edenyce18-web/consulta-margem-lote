@@ -1,0 +1,126 @@
+version: "3.9"
+
+# Variáveis compartilhadas entre backend e worker
+x-env-scraper: &env-scraper
+  DATABASE_URL: postgresql://postgres:postgres@db:5432/consulta_margem
+  REDIS_URL: redis://redis:6379/0
+  SECRET_KEY: TROQUE_EM_PRODUCAO_USE_SECRETS_MANAGER
+  # AkiCapital
+  AKICAPITAL_URL: "https://akipromotora.app/WebAutorizador/Login/AC.UI.LOGIN.aspx?FISession=7ed4824df157"
+  AKICAPITAL_LOGIN: "02622395230_901902"
+  AKICAPITAL_SENHA: "Efetiva26*"
+  # GridSoftware / Roraima
+  GRID_URL: "https://consignado.gridsoftware.com.br/grid/login.seam?"
+  GRID_LOGIN: "02622395230"
+  GRID_SENHA: "Manu@2025"
+  # 2Captcha
+  TWOCAPTCHA_API_KEY: "7e42177042c9c211507f578edf43c6fb"
+  TWOCAPTCHA_TIMEOUT_S: "120"
+  TWOCAPTCHA_POLL_INTERVAL_S: "5"
+  # Sessões Playwright
+  SESSION_DIR: /tmp/pw_sessions
+
+services:
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: margem_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: consulta_margem
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: margem_redis
+    restart: unless-stopped
+    command: redis-server --save 20 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Backend FastAPI ────────────────────────────────────────────────────────
+  backend:
+    build: ./backend
+    container_name: margem_backend
+    restart: unless-stopped
+    environment:
+      <<: *env-scraper
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend/app:/app/app
+      - pw_sessions:/tmp/pw_sessions
+
+  # ── Worker Celery ─────────────────────────────────────────────────────────
+  worker:
+    build: ./backend
+    container_name: margem_worker
+    restart: unless-stopped
+    command: >
+      celery -A app.celery_app.celery_app worker
+      --loglevel=info
+      --concurrency=4
+      --queues=celery
+    environment:
+      <<: *env-scraper
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend/app:/app/app
+      - pw_sessions:/tmp/pw_sessions  # sessões compartilhadas com backend
+
+  # ── Flower (monitor Celery) ────────────────────────────────────────────────
+  flower:
+    build: ./backend
+    container_name: margem_flower
+    restart: unless-stopped
+    command: >
+      celery -A app.celery_app.celery_app flower --port=5555
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+      - worker
+
+  # ── Frontend React ─────────────────────────────────────────────────────────
+  frontend:
+    build: ./frontend
+    container_name: margem_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
+  pw_sessions:    # sessões Playwright compartilhadas entre backend e worker

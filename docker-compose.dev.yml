@@ -1,0 +1,26 @@
+# docker-compose.dev.yml — Ambiente de desenvolvimento com hot-reload
+# Uso: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+version: "3.9"
+
+services:
+  backend:
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    command: >
+      celery -A app.celery_app.celery_app worker
+      --loglevel=debug
+      --concurrency=2
+      --queues=celery
+
+  frontend:
+    build:
+      context: ./frontend
+      target: builder          # Para dev usamos a imagem Node, não Nginx
+    command: npm run dev
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public

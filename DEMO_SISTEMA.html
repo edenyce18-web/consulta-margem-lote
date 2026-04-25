@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ConsultaMargem — Sistema de Consulta em Lote</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+  * { font-family: 'Inter', sans-serif; }
+  .animate-spin { animation: spin 1s linear infinite; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .animate-pulse-bar { animation: pulse-bar 2s ease-in-out infinite; }
+  @keyframes pulse-bar { 0%,100%{opacity:1} 50%{opacity:.6} }
+  .fade-in { animation: fadeIn .3s ease; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #f1f5f9; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  .drag-over { border-color: #3b82f6 !important; background: #eff6ff !important; }
+  pre { font-family: 'Courier New', monospace; }
+</style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-slate-100 to-blue-50">
+
+<!-- HEADER -->
+<header class="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-10">
+  <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="bg-blue-600 p-2 rounded-xl shadow-sm">
+        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-xl font-bold text-slate-800">ConsultaMargem</h1>
+        <p class="text-xs text-slate-500">Consulta em lote de margem consignada</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <span class="text-xs bg-green-100 text-green-700 border border-green-200 px-3 py-1 rounded-full font-medium flex items-center gap-1.5">
+        <span class="w-2 h-2 bg-green-500 rounded-full inline-block animate-pulse"></span>
+        Demo Interativo
+      </span>
+      <div class="text-xs text-slate-400 hidden md:block">
+        AkiCapital + GridSoftware / Roraima
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- AVISO DOCKER -->
+<div class="max-w-7xl mx-auto px-4 pt-4">
+  <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+    <svg class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+    </svg>
+    <div class="text-sm">
+      <p class="font-semibold text-amber-800">Demo visual — Docker precisa ser iniciado como Administrador</p>
+      <p class="text-amber-700 mt-1">
+        Esta tela demonstra exatamente como o sistema funciona. Para rodar de verdade:
+        clique com botão direito em <strong>INICIAR.bat</strong> → <strong>Executar como administrador</strong>.
+      </p>
+    </div>
+    <button onclick="this.parentElement.parentElement.remove()" class="ml-auto text-amber-400 hover:text-amber-600">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<!-- MAIN -->
+<main class="max-w-7xl mx-auto px-4 py-6">
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+    <!-- COLUNA ESQUERDA -->
+    <div class="space-y-5">
+
+      <!-- UPLOAD CARD -->
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+        <h2 class="text-lg font-semibold text-slate-700 mb-4 flex items-center gap-2">
+          <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+          </svg>
+          Novo Lote de Consulta
+        </h2>
+
+        <div id="dropzone"
+          ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)"
+          onclick="document.getElementById('fileinput').click()"
+          class="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-all">
+          <input type="file" id="fileinput" accept=".csv" class="hidden" onchange="handleFileSelect(event)"/>
+          <div id="dropzone-placeholder">
+            <svg class="w-10 h-10 mx-auto mb-2 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+            </svg>
+            <p class="text-sm text-slate-400">Arraste o CSV aqui ou clique para selecionar</p>
+            <p class="text-xs mt-1 text-slate-400">Coluna obrigatória: <code class="bg-slate-100 px-1 rounded">cpf</code></p>
+          </div>
+          <div id="dropzone-file" class="hidden flex items-center justify-center gap-2 text-blue-700 font-medium">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            <span id="filename-display"></span>
+          </div>
+        </div>
+
+        <!-- Seletor de banco -->
+        <div class="mt-4">
+          <label class="block text-sm font-medium text-slate-600 mb-1">Portal / Banco</label>
+          <select id="banco-select"
+            class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+            <option value="exemplo">Portal Exemplo (Simulado)</option>
+            <option value="aki">AkiCapital</option>
+            <option value="grid">GridSoftware / Roraima</option>
+          </select>
+        </div>
+
+        <!-- Feedback -->
+        <div id="feedback-erro" class="hidden mt-3 flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm"></div>
+        <div id="feedback-ok" class="hidden mt-3 flex items-start gap-2 bg-green-50 border border-green-200 text-green-700 rounded-lg p-3 text-sm"></div>
+
+        <button id="btn-iniciar" onclick="iniciarLote()"
+          class="w-full mt-4 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm">
+          Iniciar Consulta em Lote
+        </button>
+
+        <!-- Formato CSV -->
+        <div class="mt-4 p-3 bg-slate-50 rounded-lg text-xs text-slate-500">
+          <strong>Formato esperado do CSV:</strong>
+          <pre class="mt-1 text-xs">cpf
+12345678901
+98765432100
+00122244155</pre>
+        </div>
+      </div>
+
+      <!-- HISTÓRICO -->
+      <div id="historico-card" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+        <h2 class="text-lg font-semibold text-slate-700 mb-4 flex items-center gap-2">
+          <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          Histórico de Lotes
+        </h2>
+        <div id="historico-lista" class="space-y-2"></div>
+        <div id="historico-vazio" class="text-xs text-slate-400 text-center py-4">
+          Nenhum lote executado ainda.
+        </div>
+      </div>
+
+    </div>
+
+    <!-- COLUNA DIREITA — STATUS -->
+    <div class="lg:col-span-2">
+      <!-- Placeholder inicial -->
+      <div id="status-placeholder" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-12 flex flex-col items-center justify-center text-center text-slate-400 min-h-80">
+        <svg class="w-16 h-16 mb-4 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/>
+        </svg>
+        <p class="font-medium text-slate-400">Nenhum lote selecionado</p>
+        <p class="text-sm mt-1 text-slate-300">Faça upload de um CSV para iniciar</p>
+      </div>
+
+      <!-- Painel de status (hidden inicialmente) -->
+      <div id="status-painel" class="hidden bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-5 fade-in">
+
+        <!-- Header do status -->
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg font-semibold text-slate-700 flex items-center gap-2">
+            <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+            </svg>
+            Status do Lote
+          </h2>
+          <div class="flex items-center gap-2">
+            <span id="auto-badge"
+              class="text-xs px-2 py-1 rounded-full border bg-blue-50 border-blue-200 text-blue-700">
+              Auto ativo
+            </span>
+            <button onclick="refreshStatus()"
+              class="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors">
+              <svg id="refresh-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- ID -->
+        <div class="text-xs text-slate-400 font-mono break-all" id="lote-id-display"></div>
+
+        <!-- Badge de status -->
+        <div>
+          <span id="status-badge" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm font-medium"></span>
+        </div>
+
+        <!-- Métricas -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div class="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
+            <div id="m-total" class="text-2xl font-bold text-slate-800">0</div>
+            <div class="text-xs text-slate-500 mt-0.5">Total</div>
+          </div>
+          <div class="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
+            <div id="m-proc" class="text-2xl font-bold text-blue-600">0</div>
+            <div class="text-xs text-slate-500 mt-0.5">Processados</div>
+          </div>
+          <div class="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
+            <div id="m-ok" class="text-2xl font-bold text-green-600">0</div>
+            <div class="text-xs text-slate-500 mt-0.5">Sucesso</div>
+          </div>
+          <div class="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
+            <div id="m-err" class="text-2xl font-bold text-red-600">0</div>
+            <div class="text-xs text-slate-500 mt-0.5">Erros</div>
+          </div>
+        </div>
+
+        <!-- Barra de progresso -->
+        <div>
+          <div class="flex justify-between text-xs text-slate-500 mb-1">
+            <span>Progresso</span>
+            <span id="pct-label">0%</span>
+          </div>
+          <div class="w-full bg-slate-100 rounded-full h-3">
+            <div id="progress-bar"
+              class="bg-blue-500 h-3 rounded-full transition-all duration-700"
+              style="width:0%"></div>
+          </div>
+        </div>
+
+        <!-- Filtros -->
+        <div class="flex flex-wrap gap-2 text-xs" id="filtros">
+          <button onclick="setFiltro('todos')" data-filtro="todos"
+            class="filtro-btn px-3 py-1 rounded-full border bg-blue-600 border-blue-600 text-white transition-colors">Todos</button>
+          <button onclick="setFiltro('sucesso')" data-filtro="sucesso"
+            class="filtro-btn px-3 py-1 rounded-full border bg-white border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">Sucesso</button>
+          <button onclick="setFiltro('sem_margem')" data-filtro="sem_margem"
+            class="filtro-btn px-3 py-1 rounded-full border bg-white border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">Sem Margem</button>
+          <button onclick="setFiltro('erro')" data-filtro="erro"
+            class="filtro-btn px-3 py-1 rounded-full border bg-white border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">Erro</button>
+          <button onclick="setFiltro('cpf_invalido')" data-filtro="cpf_invalido"
+            class="filtro-btn px-3 py-1 rounded-full border bg-white border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">CPF Inválido</button>
+          <button onclick="setFiltro('aguardando')" data-filtro="aguardando"
+            class="filtro-btn px-3 py-1 rounded-full border bg-white border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">Aguardando</button>
+        </div>
+
+        <!-- Tabela -->
+        <div class="overflow-x-auto rounded-xl border border-slate-200">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
+              <tr>
+                <th class="px-4 py-3 text-left">CPF</th>
+                <th class="px-4 py-3 text-left">Titular / Órgão</th>
+                <th class="px-4 py-3 text-left">Vínculo</th>
+                <th class="px-4 py-3 text-center">Empréstimo</th>
+                <th class="px-4 py-3 text-center">Cartão Crédito</th>
+                <th class="px-4 py-3 text-center">Cartão Benefício</th>
+                <th class="px-4 py-3 text-right">Marg. Benefício</th>
+                <th class="px-4 py-3 text-left">Status</th>
+              </tr>
+            </thead>
+            <tbody id="tabela-corpo" class="divide-y divide-slate-100">
+              <tr>
+                <td colspan="8" class="text-center py-10 text-slate-400 text-sm">
+                  Aguardando início do processamento...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Botão exportar -->
+        <div class="flex justify-end">
+          <button onclick="exportarCSV()"
+            class="flex items-center gap-2 text-sm text-slate-600 border border-slate-200 hover:border-blue-300 hover:text-blue-700 hover:bg-blue-50 px-4 py-2 rounded-xl transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            Exportar CSV
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+// ─── Estado global ──────────────────────────────────────────────────────────
+let loteAtivo = null;
+let filtroAtivo = 'todos';
+let intervalo = null;
+let historico = [];
+let arquivoSelecionado = null;
+
+// ─── Dados mock de servidores ────────────────────────────────────────────────
+const NOMES = [
+  'MARIA JOSE SILVA', 'JOAO CARLOS SOUZA', 'ANA PAULA COSTA',
+  'PEDRO HENRIQUE LIMA', 'FERNANDA SANTOS', 'LUCAS OLIVEIRA',
+  'CAMILA RODRIGUES', 'RAFAEL ALMEIDA', 'PATRICIA PEREIRA',
+  'MARCELO FERREIRA', 'JULIANA NASCIMENTO', 'THIAGO ARAUJO',
+  'BEATRIZ MENDES', 'GUSTAVO CARDOSO', 'LARISSA RIBEIRO',
+  'ANDERSON MARTINS', 'VANESSA GOMES', 'RODRIGO BARBOSA',
+  'ISABELA CARVALHO', 'FELIPE MOREIRA'
+];
+const BANCOS = { aki: 'AkiCapital', grid: 'GridSoftware / Roraima', exemplo: 'Portal Exemplo' };
+
+function cpfAleatorio() {
+  const n = () => Math.floor(Math.random() * 10);
+  return `${n()}${n()}${n()}${n()}${n()}${n()}${n()}${n()}${n()}${n()}${n()}`;
+}
+
+function formatarCPF(cpf) {
+  if (!cpf || cpf.length !== 11) return cpf;
+  return `${cpf.slice(0,3)}.${cpf.slice(3,6)}.${cpf.slice(6,9)}-${cpf.slice(9)}`;
+}
+
+function moeda(val) {
+  if (val == null) return '—';
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+}
+
+function gerarConsultas(qtd, banco) {
+  return Array.from({ length: qtd }, (_, i) => {
+    const statuses = ['aguardando', 'aguardando', 'aguardando', 'aguardando', 'aguardando'];
+    return {
+      id: i,
+      cpf: cpfAleatorio(),
+      nome_titular: null,
+      margem_disponivel: null,
+      margem_cartao: null,
+      status_consulta: 'aguardando',
+      mensagem_erro: null,
+      banco: BANCOS[banco] || banco,
+    };
+  });
+}
+
+// ─── Drag & Drop ─────────────────────────────────────────────────────────────
+function handleDragOver(e) {
+  e.preventDefault();
+  document.getElementById('dropzone').classList.add('drag-over');
+}
+function handleDragLeave(e) {
+  document.getElementById('dropzone').classList.remove('drag-over');
+}
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropzone').classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.name.endsWith('.csv')) setArquivo(f);
+  else mostrarErro('Apenas arquivos .csv são aceitos.');
+}
+function handleFileSelect(e) {
+  const f = e.target.files[0];
+  if (f) setArquivo(f);
+}
+function setArquivo(f) {
+  arquivoSelecionado = f;
+  document.getElementById('dropzone-placeholder').classList.add('hidden');
+  const fd = document.getElementById('dropzone-file');
+  fd.classList.remove('hidden');
+  fd.style.display = 'flex';
+  document.getElementById('filename-display').textContent =
+    `${f.name} (${(f.size/1024).toFixed(1)} KB)`;
+  esconderFeedback();
+}
+
+// ─── Feedback ────────────────────────────────────────────────────────────────
+function mostrarErro(msg) {
+  const el = document.getElementById('feedback-erro');
+  el.innerHTML = `<svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+  </svg>${msg}`;
+  el.classList.remove('hidden');
+  el.style.display = 'flex';
+}
+function mostrarOk(msg) {
+  const el = document.getElementById('feedback-ok');
+  el.innerHTML = `<svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+  </svg>${msg}`;
+  el.classList.remove('hidden');
+  el.style.display = 'flex';
+}
+function esconderFeedback() {
+  document.getElementById('feedback-erro').classList.add('hidden');
+  document.getElementById('feedback-ok').classList.add('hidden');
+}
+
+// ─── Lê CPFs do arquivo CSV ──────────────────────────────────────────────────
+function lerCPFsDoCSV(arquivo) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const texto = e.target.result;
+      const linhas = texto.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+      // Detecta coluna "cpf" no header
+      const header = linhas[0].toLowerCase().split(/[,;|\t]/);
+      const idxCpf = header.findIndex(h => h.includes('cpf'));
+
+      let cpfs = [];
+      if (idxCpf >= 0) {
+        // Tem header — extrai da coluna correta
+        const sep = linhas[0].includes(';') ? ';' : linhas[0].includes('\t') ? '\t' : ',';
+        cpfs = linhas.slice(1).map(l => {
+          const cols = l.split(sep);
+          return (cols[idxCpf] || '').replace(/\D/g, '');
+        }).filter(c => c.length >= 11);
+      } else {
+        // Sem header ou primeira linha já é CPF
+        cpfs = linhas.map(l => l.replace(/\D/g, '')).filter(c => c.length === 11);
+      }
+
+      resolve(cpfs.length ? cpfs : null);
+    };
+    reader.readAsText(arquivo, 'utf-8');
+  });
+}
+
+// ─── Iniciar lote (mock) ─────────────────────────────────────────────────────
+async function iniciarLote() {
+  esconderFeedback();
+
+  const banco = document.getElementById('banco-select').value;
+  const btn = document.getElementById('btn-iniciar');
+  btn.disabled = true;
+  btn.textContent = 'Lendo arquivo...';
+
+  // Lê CPFs do CSV ou usa lista de exemplo
+  let cpfs;
+  if (arquivoSelecionado) {
+    cpfs = await lerCPFsDoCSV(arquivoSelecionado);
+    if (!cpfs) {
+      mostrarErro('Nenhum CPF válido encontrado no CSV. Certifique-se que há uma coluna "cpf" ou uma CPF por linha.');
+      btn.disabled = false;
+      btn.textContent = 'Iniciar Consulta em Lote';
+      return;
+    }
+    if (cpfs.length > 200) cpfs = cpfs.slice(0, 200); // Limita demo a 200
+  } else {
+    // Usa CPFs de exemplo fixos
+    cpfs = [
+      '02622395230', '12345678901', '98765432100',
+      '11122233344', '55566677788', '00011122233',
+      '44455566677', '77788899900', '33322211100', '66677788811'
+    ];
+  }
+
+  const loteId = crypto.randomUUID();
+  const novoLote = {
+    id: loteId,
+    arquivo: arquivoSelecionado?.name || 'exemplo_demo.csv',
+    banco,
+    consultas: gerarConsultas(cpfs.length, banco),
+    total: cpfs.length,
+    processados: 0,
+    sucessos: 0,
+    erros: 0,
+    status: 'processando',
+    criado_em: new Date().toISOString(),
+    progresso: 0,
+  };
+
+  // Substitui CPFs gerados pelos reais
+  novoLote.consultas.forEach((c, i) => { c.cpf = cpfs[i] || c.cpf; });
+
+  loteAtivo = novoLote;
+  historico.unshift(novoLote);
+  atualizarHistorico();
+
+  btn.textContent = 'Processando...';
+
+  mostrarOk(`
+    <div>
+      <strong>Lote criado com sucesso! (Demo)</strong><br/>
+      ID: <code class="text-xs bg-green-100 px-1 rounded">${loteId.slice(0,8)}...</code><br/>
+      ${cpfs.length} CPFs em processamento.
+    </div>
+  `);
+
+  mostrarPainel(novoLote);
+  simularProcessamento(novoLote);
+}
+
+// ─── Simulação de processamento (campos reais Aki Capital) ───────────────────
+const ORGAOS = [
+  '25000 - MINISTERIO DA SAUDE', '26000 - MEC', '20000 - PRESIDENCIA',
+  '22000 - MIN. FAZENDA', '23000 - PLANEJAMENTO', '30000 - MIN. JUSTICA',
+  '52000 - MIN. DEFESA', '36000 - MIN. TRABALHO', 'GOV ESTADO RR',
+  '53000 - MIN. CIENCIA'
+];
+
+function situacaoAleatoria(chanceAutorizado) {
+  return Math.random() < chanceAutorizado ? 'Autorizado' : 'Não Autorizado';
+}
+
+function simularProcessamento(lote) {
+  if (intervalo) clearInterval(intervalo);
+
+  let idx = 0;
+  const velocidade = 700; // ms por CPF
+
+  intervalo = setInterval(() => {
+    if (idx >= lote.consultas.length) {
+      clearInterval(intervalo);
+      lote.status = 'concluido';
+      document.getElementById('btn-iniciar').disabled = false;
+      document.getElementById('btn-iniciar').textContent = 'Iniciar Consulta em Lote';
+      atualizarHistorico();
+      renderizarStatus(lote);
+      return;
+    }
+
+    const c = lote.consultas[idx];
+    const r = Math.random();
+
+    if (r < 0.08) {
+      // CPF inválido
+      c.status_consulta = 'cpf_invalido';
+      lote.erros++;
+    } else if (r < 0.15) {
+      // Erro técnico
+      c.status_consulta = 'erro';
+      c.mensagem_erro = ['Timeout de conexão', 'Portal indisponível', 'Sessão expirada'][Math.floor(Math.random()*3)];
+      lote.erros++;
+    } else {
+      // Servidor encontrado — distribui autorizações
+      c.nome_titular    = NOMES[Math.floor(Math.random() * NOMES.length)];
+      c.orgao           = ORGAOS[Math.floor(Math.random() * ORGAOS.length)];
+      c.tipo_vinculo    = Math.random() < 0.85 ? 'Servidor' : 'Pensionista';
+      c.matricula       = String(Math.floor(Math.random() * 9000000 + 1000000));
+
+      c.emp_sit  = situacaoAleatoria(0.45);   // 45% Autorizado
+      c.cc_sit   = situacaoAleatoria(0.35);   // 35% Autorizado
+      c.cb_sit   = situacaoAleatoria(0.55);   // 55% Autorizado
+
+      // Margem Benefício só existe se Cartão Benefício Autorizado
+      c.margem_beneficio = c.cb_sit === 'Autorizado'
+        ? Math.round((Math.random() * 300 + 20) * 100) / 100
+        : null;
+
+      const temAutorizado = [c.emp_sit, c.cc_sit, c.cb_sit]
+        .some(s => s === 'Autorizado');
+
+      c.status_consulta = temAutorizado ? 'sucesso' : 'sem_margem';
+      if (temAutorizado) lote.sucessos++;
+    }
+
+    lote.processados++;
+    lote.progresso = Math.round((lote.processados / lote.total) * 100);
+    idx++;
+
+    if (loteAtivo?.id === lote.id) renderizarStatus(lote);
+  }, velocidade);
+}
+
+// ─── Mostrar painel ───────────────────────────────────────────────────────────
+function mostrarPainel(lote) {
+  document.getElementById('status-placeholder').classList.add('hidden');
+  const painel = document.getElementById('status-painel');
+  painel.classList.remove('hidden');
+  painel.classList.add('fade-in');
+  renderizarStatus(lote);
+}
+
+// ─── Renderizar status ────────────────────────────────────────────────────────
+function renderizarStatus(lote) {
+  document.getElementById('lote-id-display').textContent = 'ID: ' + lote.id;
+  document.getElementById('m-total').textContent = lote.total;
+  document.getElementById('m-proc').textContent = lote.processados;
+  document.getElementById('m-ok').textContent = lote.sucessos;
+  document.getElementById('m-err').textContent = lote.erros;
+
+  const pct = lote.progresso || 0;
+  document.getElementById('pct-label').textContent = pct + '%';
+  document.getElementById('progress-bar').style.width = pct + '%';
+
+  // Cor da barra
+  const bar = document.getElementById('progress-bar');
+  if (lote.status === 'concluido') {
+    bar.classList.remove('bg-blue-500');
+    bar.classList.add('bg-green-500');
+  }
+
+  // Badge de status
+  const badge = document.getElementById('status-badge');
+  const configs = {
+    pendente:    { cls: 'text-yellow-600 bg-yellow-50 border-yellow-200', label: '⏳ Pendente' },
+    processando: { cls: 'text-blue-600 bg-blue-50 border-blue-200',       label: '⚙️ Processando' },
+    concluido:   { cls: 'text-green-600 bg-green-50 border-green-200',    label: '✅ Concluído' },
+    erro:        { cls: 'text-red-600 bg-red-50 border-red-200',          label: '❌ Erro' },
+  };
+  const cfg = configs[lote.status] || configs.pendente;
+  badge.className = `inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm font-medium ${cfg.cls}`;
+  badge.textContent = cfg.label;
+
+  renderizarTabela(lote);
+}
+
+// ─── Tabela ───────────────────────────────────────────────────────────────────
+const STATUS_STYLE = {
+  aguardando:   { label: 'Aguardando',   cls: 'bg-slate-100 text-slate-600' },
+  processando:  { label: 'Processando',  cls: 'bg-blue-100 text-blue-700' },
+  sucesso:      { label: 'Sucesso',      cls: 'bg-green-100 text-green-700' },
+  erro:         { label: 'Erro',         cls: 'bg-red-100 text-red-700' },
+  cpf_invalido: { label: 'CPF Inválido', cls: 'bg-orange-100 text-orange-700' },
+  sem_margem:   { label: 'Sem Margem',   cls: 'bg-purple-100 text-purple-700' },
+};
+
+function badgeAutorizacao(situacao) {
+  if (!situacao) return '<span class="text-slate-300 text-xs">—</span>';
+  const autorizado = situacao === 'Autorizado';
+  return `<span class="px-2 py-0.5 rounded-full text-xs font-medium ${
+    autorizado ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
+  }">${situacao}</span>`;
+}
+
+function renderizarTabela(lote) {
+  const tbody = document.getElementById('tabela-corpo');
+  const filtradas = lote.consultas.filter(c =>
+    filtroAtivo === 'todos' ? true : c.status_consulta === filtroAtivo
+  );
+
+  if (!filtradas.length) {
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-10 text-slate-400 text-sm">
+      Nenhum resultado para o filtro selecionado.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtradas.map(c => {
+    const sc = STATUS_STYLE[c.status_consulta] || { label: c.status_consulta, cls: 'bg-slate-100 text-slate-600' };
+    const erroHtml = c.mensagem_erro
+      ? `<p class="text-xs text-red-500 mt-0.5 max-w-xs truncate" title="${c.mensagem_erro}">${c.mensagem_erro}</p>`
+      : '';
+    return `
+      <tr class="hover:bg-slate-50 transition-colors">
+        <td class="px-4 py-3 font-mono text-xs text-slate-700">${formatarCPF(c.cpf)}</td>
+        <td class="px-4 py-3 text-xs text-slate-700">
+          <div class="font-medium">${c.nome_titular || '—'}</div>
+          ${c.orgao ? `<div class="text-slate-400 text-xs mt-0.5">${c.orgao}</div>` : ''}
+        </td>
+        <td class="px-4 py-3 text-xs text-slate-500">${c.tipo_vinculo || '—'}</td>
+        <td class="px-4 py-3 text-center">${badgeAutorizacao(c.emp_sit)}</td>
+        <td class="px-4 py-3 text-center">${badgeAutorizacao(c.cc_sit)}</td>
+        <td class="px-4 py-3 text-center">${badgeAutorizacao(c.cb_sit)}</td>
+        <td class="px-4 py-3 text-right font-semibold ${c.margem_beneficio ? 'text-green-700' : 'text-slate-300'}">
+          ${c.margem_beneficio ? moeda(c.margem_beneficio) : '—'}
+        </td>
+        <td class="px-4 py-3">
+          <span class="px-2 py-0.5 rounded-full text-xs font-medium ${sc.cls}">${sc.label}</span>
+          ${erroHtml}
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+// ─── Filtros ─────────────────────────────────────────────────────────────────
+function setFiltro(f) {
+  filtroAtivo = f;
+  document.querySelectorAll('.filtro-btn').forEach(btn => {
+    const isAtivo = btn.dataset.filtro === f;
+    btn.className = `filtro-btn px-3 py-1 rounded-full border transition-colors ${
+      isAtivo
+        ? 'bg-blue-600 border-blue-600 text-white'
+        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+    }`;
+  });
+  if (loteAtivo) renderizarTabela(loteAtivo);
+}
+
+// ─── Refresh manual ───────────────────────────────────────────────────────────
+function refreshStatus() {
+  const icon = document.getElementById('refresh-icon');
+  icon.classList.add('animate-spin');
+  setTimeout(() => icon.classList.remove('animate-spin'), 800);
+  if (loteAtivo) renderizarStatus(loteAtivo);
+}
+
+// ─── Histórico ────────────────────────────────────────────────────────────────
+function atualizarHistorico() {
+  const lista = document.getElementById('historico-lista');
+  const vazio = document.getElementById('historico-vazio');
+
+  if (!historico.length) {
+    vazio.style.display = 'block';
+    lista.innerHTML = '';
+    return;
+  }
+  vazio.style.display = 'none';
+
+  const COR = {
+    pendente:    'bg-yellow-100 text-yellow-700',
+    processando: 'bg-blue-100 text-blue-700',
+    concluido:   'bg-green-100 text-green-700',
+    erro:        'bg-red-100 text-red-700',
+  };
+
+  lista.innerHTML = historico.map(lote => `
+    <button onclick="selecionarLote('${lote.id}')"
+      class="w-full flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50 transition-colors text-left">
+      <div class="flex-1 min-w-0">
+        <div class="text-xs font-mono text-slate-400 truncate">${lote.id.slice(0,18)}...</div>
+        <div class="text-sm text-slate-600 mt-0.5">${lote.arquivo} — ${lote.total} CPFs</div>
+        <div class="text-xs text-slate-400">
+          ${new Date(lote.criado_em).toLocaleString('pt-BR')} · ${lote.sucessos} ok / ${lote.erros} erros
+        </div>
+      </div>
+      <div class="flex items-center gap-2 ml-3 shrink-0">
+        <span class="text-xs px-2 py-0.5 rounded-full font-medium ${COR[lote.status] || ''}">
+          ${lote.status}
+        </span>
+        <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </div>
+    </button>
+  `).join('');
+}
+
+function selecionarLote(id) {
+  const lote = historico.find(l => l.id === id);
+  if (!lote) return;
+  loteAtivo = lote;
+  mostrarPainel(lote);
+}
+
+// ─── Exportar CSV ─────────────────────────────────────────────────────────────
+function exportarCSV() {
+  if (!loteAtivo) return;
+  const header = 'CPF;Nome;Órgão;Tipo Vínculo;Matrícula;Empréstimo;Cartão Crédito;Cartão Benefício;Margem Benefício;Status;Erro';
+  const rows = loteAtivo.consultas
+    .filter(c => c.status_consulta !== 'aguardando')
+    .map(c => [
+      formatarCPF(c.cpf),
+      c.nome_titular || '',
+      c.orgao || '',
+      c.tipo_vinculo || '',
+      c.matricula || '',
+      c.emp_sit || '',
+      c.cc_sit || '',
+      c.cb_sit || '',
+      c.margem_beneficio != null ? c.margem_beneficio.toFixed(2).replace('.',',') : '',
+      c.status_consulta,
+      c.mensagem_erro || '',
+    ].join(';'));
+  const csv = [header, ...rows].join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `resultados_aki_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+atualizarHistorico();
+</script>
+</body>
+</html>
