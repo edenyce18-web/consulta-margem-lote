@@ -24,7 +24,7 @@ from app.scraper.captcha import TwoCaptchaSolver
 from app.scraper.manager import AdapterManager
 from app.scraper.utils import (
     formatar_cpf, pausa_humana, digitar_lento,
-    parse_moeda, resultado_erro, resultado_sem_margem,
+    parse_moeda, resultado_erro, resultado_sem_margem, clicar_seguro,
 )
 
 logger = logging.getLogger(__name__)
@@ -130,7 +130,7 @@ class GridSoftwareAdapter(BaseScraperAdapter):
 
         self._resolver_captcha_se_presente(page)
 
-        page.click(self.SEL_SUBMIT)
+        clicar_seguro(page, self.SEL_SUBMIT, timeout=8_000)
         logger.info("[GridSoftware] Formulário submetido — aguardando redirecionamento.")
 
         try:
@@ -202,18 +202,26 @@ class GridSoftwareAdapter(BaseScraperAdapter):
     def _extrair_margem(self, page, cpf: str) -> dict:
         self._navegar_para_consulta(page)
 
-        campo_cpf = self._primeiro_seletor(page, self.SEL_CAMPO_CPF)
+        campo_cpf = self._primeiro_seletor(page, self.SEL_CAMPO_CPF, exigir_visivel=False)
         if not campo_cpf:
             return resultado_erro(
                 "Campo CPF não encontrado na tela de consulta.", cpf, self.NOME_BANCO
             )
 
-        digitar_lento(page, campo_cpf, formatar_cpf(cpf))
-        pausa_humana(0.5, 1.0)
+        cpf_formatado = formatar_cpf(cpf)
+        try:
+            digitar_lento(page, campo_cpf, cpf_formatado)
+        except Exception:
+            try:
+                page.locator(campo_cpf).first.fill(cpf_formatado, force=True, timeout=5_000)
+            except Exception as exc:
+                logger.warning("[GridSoftware] Falha ao preencher CPF: %s", exc)
+        pausa_humana(0.3, 0.8)
 
-        btn = self._primeiro_seletor(page, self.SEL_BTN_CONSULTAR)
+        btn = self._primeiro_seletor(page, self.SEL_BTN_CONSULTAR, exigir_visivel=False)
         if btn:
-            page.click(btn)
+            if not self._clicar_com_fallback(page, btn, timeout=8_000):
+                page.keyboard.press("Enter")
         else:
             page.keyboard.press("Enter")
 

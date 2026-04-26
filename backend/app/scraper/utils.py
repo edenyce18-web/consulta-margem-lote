@@ -94,10 +94,61 @@ def pausa_humana(min_s: float = 1.0, max_s: float = 3.0) -> None:
     time.sleep(random.uniform(min_s, max_s))
 
 
-def digitar_lento(page, seletor: str, texto: str) -> None:
-    """Preenche um campo com digitação simulada (delay por tecla)."""
-    page.fill(seletor, "")
-    page.type(seletor, texto, delay=random.randint(60, 130))
+def digitar_lento(page, seletor: str, texto: str, force: bool = False) -> None:
+    """
+    Preenche um campo com digitação simulada.
+    Usa force=True quando o campo existe mas pode estar coberto/oculto.
+    """
+    try:
+        page.fill(seletor, "", timeout=5_000)
+        page.type(seletor, texto, delay=random.randint(60, 130))
+    except Exception:
+        # Fallback: fill direto com force (ignora visibilidade)
+        try:
+            page.locator(seletor).first.fill(texto, force=True, timeout=5_000)
+        except Exception:
+            # Último recurso: foca e digita via JavaScript
+            page.evaluate(
+                f"el => {{ el.value = ''; el.value = arguments[1]; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change')); }}",
+                page.locator(seletor).first.element_handle(),
+            )
+
+
+def clicar_seguro(page, seletor: str, timeout: int = 8_000) -> bool:
+    """
+    Tenta clicar em um elemento com cadeia de fallbacks:
+      1. click normal (aguarda visibilidade)
+      2. click com force=True (ignora visibilidade)
+      3. dispatch_event('click') via Playwright
+      4. click via JavaScript
+    Retorna True se algum método funcionou.
+    """
+    loc = page.locator(seletor).first
+    # Tentativa 1: click normal com timeout curto
+    try:
+        loc.click(timeout=timeout)
+        return True
+    except Exception:
+        pass
+    # Tentativa 2: force=True (ignora visibility/interactability)
+    try:
+        loc.click(force=True, timeout=3_000)
+        return True
+    except Exception:
+        pass
+    # Tentativa 3: dispatch_event (sem mover mouse)
+    try:
+        loc.dispatch_event("click")
+        return True
+    except Exception:
+        pass
+    # Tentativa 4: JavaScript click
+    try:
+        loc.evaluate("el => el.click()")
+        return True
+    except Exception:
+        pass
+    return False
 
 
 # ── Debug ─────────────────────────────────────────────────────────────────────

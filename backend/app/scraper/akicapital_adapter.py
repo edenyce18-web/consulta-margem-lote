@@ -22,7 +22,7 @@ from app.scraper.base_adapter import (
 from app.scraper.manager import AdapterManager
 from app.scraper.utils import (
     formatar_cpf, pausa_humana, digitar_lento,
-    parse_moeda, resultado_erro, resultado_sem_margem,
+    parse_moeda, resultado_erro, resultado_sem_margem, clicar_seguro,
 )
 
 logger = logging.getLogger(__name__)
@@ -151,23 +151,15 @@ class AkiCapitalAdapter(BaseScraperAdapter):
     # ── Navegação para consulta ───────────────────────────────────────────────
 
     def _navegar_para_consulta(self, page) -> None:
-        # Tenta via menu primeiro (links renderizados pelo JS)
-        sel_menu = self._primeiro_seletor(page, [
-            "a:has-text('Consulta de Margem')",
-            "a:has-text('Margem Consignada')",
-            "a:has-text('Consultar Margem')",
-            "a:has-text('Consultar')",
-            "#mnuConsultaMargem",
-            "a[href*='ConsultaMargem']",
-            "a[href*='Margem']",
-        ])
+        """
+        Navega para a página de consulta de margem.
 
-        if sel_menu:
-            page.click(sel_menu)
-            page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
-            pausa_humana(1.0, 2.0)
-            return
-
+        Estratégia (ordem de confiabilidade):
+          1. Navegação direta por URL com FISession (mais confiável — evita clicar
+             em elementos de menu que existem no DOM mas estão ocultos)
+          2. Navegação direta por URL sem FISession (fallback)
+          3. Clique no menu via JavaScript (último recurso)
+        """
         # Extrai FISession da URL atual — o WebAutorizador exige esse parâmetro
         fi_session = ""
         fi_match = re.search(r"[Ff][Ii][Ss]ession=([^&\s]+)", page.url)
@@ -176,8 +168,10 @@ class AkiCapitalAdapter(BaseScraperAdapter):
             logger.info("[AkiCapital] FISession capturado: %s…", fi_session[:8])
 
         base = re.sub(r"/Login/.*", "", self.URL_LOGIN.split("?")[0])
+        # Garante base sem query string (ex: remove ?FISession=... do URL_LOGIN)
+        base = base.split("?")[0]
 
-        # Tenta primeiro com FISession (requerido pelo portal), depois sem
+        # Estratégia 1 e 2: navegação direta por URL (não depende de visibilidade de menu)
         urls_tentativas: list[str] = []
         if fi_session:
             urls_tentativas.append(
@@ -186,16 +180,39 @@ class AkiCapitalAdapter(BaseScraperAdapter):
         urls_tentativas.append(f"{base}/Consulta/ConsultaMargem.aspx")
 
         for url_consulta in urls_tentativas:
-            logger.info("[AkiCapital] Tentando página de consulta: %s", url_consulta)
+            logger.info("[AkiCapital] Navegando diretamente para: %s", url_consulta)
             try:
                 page.goto(url_consulta, wait_until="domcontentloaded", timeout=TIMEOUT_NAV)
-                pausa_humana(1.0, 2.0)
+                pausa_humana(0.8, 1.8)
                 if "login" not in page.url.lower():
                     logger.info("[AkiCapital] Página de consulta carregada: %s", page.url)
                     return
-                logger.warning("[AkiCapital] Redirecionado para login após navegar para consulta.")
+                logger.warning("[AkiCapital] Redirecionado para login — sessão expirou.")
             except Exception as exc:
                 logger.warning("[AkiCapital] Falha ao navegar para %s: %s", url_consulta, exc)
+
+        # Estratégia 3: clique no menu via JavaScript (ignora visibilidade CSS)
+        sels_menu = [
+            "a[href*='ConsultaMargem']",
+            "a[href*='Margem']",
+            "#mnuConsultaMargem",
+            "a:has-text('Consulta de Margem')",
+            "a:has-text('Margem Consignada')",
+            "a:has-text('Consultar')",
+        ]
+        # Procura qualquer um dos seletores no DOM (sem exigir visibilidade)
+        sel_menu = self._primeiro_seletor(page, sels_menu, exigir_visivel=False)
+        if sel_menu:
+            logger.info("[AkiCapital] Tentando menu via JS click: %s", sel_menu)
+            clicou = self._clicar_com_fallback(page, sel_menu, timeout=5_000)
+            if clicou:
+                try:
+                    page.wait_for_load_state("domcontentloaded", timeout=15_000)
+                except Exception:
+                    pass
+                pausa_humana(0.5, 1.5)
+                if "login" not in page.url.lower():
+                    return
 
         logger.error("[AkiCapital] Não foi possível alcançar a página de consulta de margem.")
 
@@ -204,22 +221,41 @@ class AkiCapitalAdapter(BaseScraperAdapter):
     def _extrair_margem(self, page, cpf: str) -> dict:
         self._navegar_para_consulta(page)
 
-        campo_cpf = self._primeiro_seletor(page, self.SEL_CAMPO_CPF)
+        # ── Localiza campo CPF ────────────────────────────────────────────────
+        # Procura sem exigir visibilidade (campo pode estar em iframe ou tab oculta)
+        campo_cpf = self._primeiro_seletor(page, self.SEL_CAMPO_CPF, exigir_visivel=False)
         if not campo_cpf:
             return resultado_erro(
                 "Campo CPF não encontrado na página de consulta.", cpf, self.NOME_BANCO
             )
 
-        page.fill(campo_cpf, "")
-        digitar_lento(page, campo_cpf, formatar_cpf(cpf))
-        pausa_humana(0.5, 1.0)
+        # Preenche com fallback: se fill normal falhar, usa force/JS
+        cpf_formatado = formatar_cpf(cpf)
+        try:
+            digitar_lento(page, campo_cpf, cpf_formatado)
+        except Exception:
+            try:
+                page.locator(campo_cpf).first.fill(cpf_formatado, force=True, timeout=5_000)
+            except Exception as exc:
+                logger.warning("[AkiCapital] Falha ao preencher campo CPF: %s", exc)
+        pausa_humana(0.3, 0.8)
 
-        btn = self._primeiro_seletor(page, self.SEL_BTN_CONSULTAR)
+        # ── Clica em Consultar com cadeia de fallbacks ────────────────────────
+        btn = self._primeiro_seletor(page, self.SEL_BTN_CONSULTAR, exigir_visivel=False)
+        clicou = False
         if btn:
-            page.click(btn)
-        else:
-            page.keyboard.press("Enter")
+            clicou = self._clicar_com_fallback(page, btn, timeout=8_000)
+        if not clicou:
+            # Último recurso: Enter no campo CPF
+            logger.warning("[AkiCapital] Botão Consultar não clicável — usando Enter.")
+            try:
+                page.locator(campo_cpf).first.press("Enter")
+                clicou = True
+            except Exception:
+                page.keyboard.press("Enter")
+                clicou = True
 
+        # ── Aguarda resultado ─────────────────────────────────────────────────
         try:
             page.wait_for_selector(
                 ", ".join(self.SEL_RESULTADO),

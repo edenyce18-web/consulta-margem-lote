@@ -318,14 +318,34 @@ class BaseScraperAdapter(ABC):
     # ── Helpers para subclasses ───────────────────────────────────────────────
 
     @staticmethod
-    def _primeiro_seletor(page, seletores: list[str]) -> Optional[str]:
+    def _primeiro_seletor(page, seletores: list[str], exigir_visivel: bool = True) -> Optional[str]:
+        """
+        Retorna o primeiro seletor que encontra um elemento no DOM.
+        Por padrão (exigir_visivel=True) só retorna se o elemento estiver visível,
+        evitando que page.click() tente clicar em elementos ocultos e timeout.
+        """
         for sel in seletores:
             try:
-                if page.locator(sel).count() > 0:
+                loc = page.locator(sel)
+                if loc.count() == 0:
+                    continue
+                if exigir_visivel:
+                    if loc.first.is_visible():
+                        return sel
+                else:
                     return sel
             except Exception:
                 continue
         return None
+
+    @staticmethod
+    def _clicar_com_fallback(page, seletor: str, timeout: int = 8_000) -> bool:
+        """
+        Clica em um elemento com cadeia de fallbacks para contornar elementos
+        que existem no DOM mas estão ocultos ou cobertos.
+        """
+        from app.scraper.utils import clicar_seguro
+        return clicar_seguro(page, seletor, timeout=timeout)
 
     @staticmethod
     def _texto_seletor(page, seletores: list[str]) -> Optional[str]:
