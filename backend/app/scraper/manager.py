@@ -27,13 +27,18 @@ class AdapterManager:
         return decorator
 
     @classmethod
-    def obter(cls, banco: str, credencial: Optional[dict] = None) -> "BaseScraperAdapter":
+    def obter(
+        cls,
+        banco: str,
+        credencial: Optional[dict] = None,
+        usuario_id: Optional[str] = None,
+    ) -> "BaseScraperAdapter":
         if banco not in cls._registry:
             disponiveis = ", ".join(sorted(cls._registry.keys()))
             raise KeyError(
                 f"Adaptador '{banco}' não encontrado. Disponíveis: {disponiveis}"
             )
-        return cls._registry[banco](credencial=credencial)
+        return cls._registry[banco](credencial=credencial, usuario_id=usuario_id)
 
     @classmethod
     def listar(cls) -> list[str]:

@@ -341,6 +341,7 @@ async def upload_lote(
         cpfs,
         banco,
         str(credencial_id) if credencial_id else None,
+        str(usuario.id),
     )
 
     return schemas.UploadLoteResponse(

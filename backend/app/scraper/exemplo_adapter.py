@@ -37,6 +37,9 @@ class PortalExemploAdapter(BaseScraperAdapter):
     CHAVE_SESSAO = "exemplo"
     URL_LOGIN    = ""
 
+    def __init__(self, credencial=None, usuario_id=None):
+        super().__init__(credencial, usuario_id=usuario_id)
+
     # Sobrescreve consultar() diretamente — sem Playwright
     def consultar(self, cpf: str) -> dict:
         cpf_limpo = limpar_cpf(cpf)
@@ -72,6 +75,10 @@ class PortalExemploAdapter(BaseScraperAdapter):
                 "situacao":    "ATIVO",
             }),
         }
+
+    # BrowserLote chama consultar_com_page — redireciona para consultar() simulado
+    def consultar_com_page(self, page, cpf: str, context=None) -> dict:
+        return self.consultar(cpf)
 
     # Métodos abstratos (não usados neste adaptador)
     def _esta_logado(self, page) -> bool:

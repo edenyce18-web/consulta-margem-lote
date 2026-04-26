@@ -64,8 +64,8 @@ class AkiCapitalAdapter(BaseScraperAdapter):
         "#GridResultados", "#tblMargem", "#divResultado", "table[id*='Grid']",
     ]
 
-    def __init__(self, credencial: Optional[dict] = None):
-        super().__init__(credencial)
+    def __init__(self, credencial: Optional[dict] = None, usuario_id: Optional[str] = None):
+        super().__init__(credencial, usuario_id=usuario_id)
         # URL pode ser sobrescrita pela credencial do usuário
         self.URL_LOGIN = (
             (credencial or {}).get("url")

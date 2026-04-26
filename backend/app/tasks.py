@@ -59,6 +59,7 @@ def processar_lote(
     cpfs: List[str],
     banco: str = "exemplo",
     credencial_id: Optional[str] = None,
+    usuario_id: Optional[str] = None,
 ):
     """
     Tarefa Celery principal.
@@ -83,8 +84,8 @@ def processar_lote(
         # Carrega credencial uma vez para todo o lote
         credencial = _carregar_credencial(db, credencial_id)
 
-        # Cria o adapter com credencial (reutilizado em todos os CPFs do lote)
-        adapter = AdapterManager.obter(banco, credencial=credencial)
+        # Cria o adapter com credencial e usuario_id (isola sessão por usuário)
+        adapter = AdapterManager.obter(banco, credencial=credencial, usuario_id=usuario_id)
 
         consecutivos_timeout = 0  # rastreia timeouts seguidos para dar mais pausa
 

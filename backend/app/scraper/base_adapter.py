@@ -113,19 +113,25 @@ class BaseScraperAdapter(ABC):
         "--disable-infobars",
     ]
 
-    def __init__(self, credencial: Optional[dict] = None):
+    def __init__(self, credencial: Optional[dict] = None, usuario_id: Optional[str] = None):
         """
         Args:
-            credencial: Dict com chaves 'id', 'login', 'senha', 'url' (todos opcionais).
-                        Se None, usa as configurações globais do settings.
+            credencial:  Dict com chaves 'id', 'login', 'senha', 'url' (todos opcionais).
+                         Se None, usa as configurações globais do settings.
+            usuario_id:  UUID do usuário dono do lote.
+                         Usado para isolar sessões quando não há credencial específica.
         """
         self._credencial = credencial or {}
-        # Isola sessão por credencial para evitar conflito entre usuários
+
+        # Isola sessão por credencial (preferencial) ou por usuário (fallback)
+        # → impede que dois usuários diferentes compartilhem a mesma sessão do portal
         cred_id = self._credencial.get("id")
         if cred_id:
-            # Usa sufixo curto do UUID para não tornar o nome muito longo
             sufixo = cred_id.replace("-", "")[:8]
             self.CHAVE_SESSAO = f"{self.CHAVE_SESSAO}_{sufixo}"
+        elif usuario_id:
+            sufixo = str(usuario_id).replace("-", "")[:8]
+            self.CHAVE_SESSAO = f"{self.CHAVE_SESSAO}_u{sufixo}"
 
     # ── Sessão persistente ────────────────────────────────────────────────────
 
@@ -249,6 +255,64 @@ class BaseScraperAdapter(ABC):
                 "[%s] Erro inesperado ao consultar CPF %s após %.1fs: %s",
                 self.NOME_BANCO, cpf_limpo, time.time()-t0, exc,
             )
+            return resultado_erro(str(exc), cpf_limpo, self.NOME_BANCO)
+
+    def consultar_com_page(self, page, cpf: str, context=None) -> dict:
+        """
+        Consulta um CPF usando uma page já aberta e (supostamente) autenticada.
+        Chamado pelo BrowserLote para reutilizar a sessão entre CPFs.
+
+        Re-autentica automaticamente se detectar redirecionamento para login.
+        """
+        import time as _time
+        from app.scraper.utils import limpar_cpf, validar_cpf, resultado_cpf_invalido
+
+        cpf_limpo = limpar_cpf(cpf)
+        if not validar_cpf(cpf_limpo):
+            logger.warning("[%s] CPF inválido: %s", self.NOME_BANCO, cpf_limpo)
+            return resultado_cpf_invalido(cpf_limpo, self.NOME_BANCO)
+
+        t0 = _time.time()
+
+        # Detecta sessão expirada antes de tentar extrair
+        if not self._esta_logado(page):
+            logger.info(
+                "[%s] Sessão expirada (mid-lote) — re-autenticando para CPF %s",
+                self.NOME_BANCO, cpf_limpo,
+            )
+            self._invalidar_sessao()
+            self._fazer_login(page)
+            if context:
+                self._salvar_sessao(context)
+
+        try:
+            resultado = self._extrair_margem(page, cpf_limpo)
+
+            # Se durante a extração fomos redirecionados para login, tenta re-auth + retry
+            if "login" in page.url.lower():
+                logger.warning(
+                    "[%s] Redirecionado para login durante extração do CPF %s — re-autenticando.",
+                    self.NOME_BANCO, cpf_limpo,
+                )
+                self._invalidar_sessao()
+                self._fazer_login(page)
+                if context:
+                    self._salvar_sessao(context)
+                resultado = self._extrair_margem(page, cpf_limpo)
+
+            logger.info(
+                "[%s] CPF %s → %s (%.1fs)",
+                self.NOME_BANCO, cpf_limpo,
+                resultado.get("status_consulta"), _time.time() - t0,
+            )
+            return resultado
+
+        except Exception as exc:
+            logger.error(
+                "[%s] Erro ao consultar CPF %s: %s (%.1fs)",
+                self.NOME_BANCO, cpf_limpo, exc, _time.time() - t0,
+            )
+            from app.scraper.utils import resultado_erro
             return resultado_erro(str(exc), cpf_limpo, self.NOME_BANCO)
 
     # ── Helpers para subclasses ───────────────────────────────────────────────

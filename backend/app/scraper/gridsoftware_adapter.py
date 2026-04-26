@@ -87,8 +87,8 @@ class GridSoftwareAdapter(BaseScraperAdapter):
         ".margem-cartao",
     ]
 
-    def __init__(self, credencial: Optional[dict] = None):
-        super().__init__(credencial)
+    def __init__(self, credencial: Optional[dict] = None, usuario_id: Optional[str] = None):
+        super().__init__(credencial, usuario_id=usuario_id)
         self.URL_LOGIN = (
             (credencial or {}).get("url")
             or self._URL_LOGIN_DEFAULT
