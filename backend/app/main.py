@@ -52,8 +52,26 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup():
-    create_tables()
-    logger.info("Tabelas verificadas/criadas.")
+    from sqlalchemy import inspect as sa_inspect
+    from app.database import engine
+
+    try:
+        logger.info("Verificando schema do banco de dados...")
+        create_tables()
+
+        inspector = sa_inspect(engine)
+        tabelas_existentes = set(inspector.get_table_names())
+        tabelas_necessarias = {
+            "usuarios", "lotes", "consultas",
+            "refresh_tokens", "login_attempts", "audit_logs", "credenciais",
+        }
+        faltando = tabelas_necessarias - tabelas_existentes
+        if faltando:
+            logger.warning("Tabelas faltando (execute alembic upgrade head): %s", faltando)
+        else:
+            logger.info("Todas as tabelas verificadas com sucesso.")
+    except Exception as e:
+        logger.error("Erro ao verificar schema: %s — a aplicação pode funcionar de forma degradada.", e)
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
