@@ -513,6 +513,41 @@ def dashboard(
     )
 
 
+# ── Catálogo ──────────────────────────────────────────────────────────────────
+
+_BANCOS_CATALOGO = [
+    {
+        "id": "aki",
+        "nome": "AkiCapital",
+        "descricao": "Plataforma AkiCapital para consulta de margem consignada via WebAutorizador.",
+        "status": "ativo",
+        "margem_maxima": "R$ 5.000,00",
+        "taxa_media": "1,89% a.m.",
+    },
+    {
+        "id": "grid",
+        "nome": "GridSoftware",
+        "descricao": "Portal GridSoftware para consulta de margem consignada.",
+        "status": "ativo",
+        "margem_maxima": "R$ 4.500,00",
+        "taxa_media": "2,05% a.m.",
+    },
+    {
+        "id": "exemplo",
+        "nome": "Exemplo (Demo)",
+        "descricao": "Adaptador de demonstração com dados simulados para testes.",
+        "status": "demo",
+        "margem_maxima": "—",
+        "taxa_media": "—",
+    },
+]
+
+
+@app.get("/catalogo/bancos", tags=["Catálogo"])
+def catalogo_bancos():
+    return _BANCOS_CATALOGO
+
+
 # ── Sistema ───────────────────────────────────────────────────────────────────
 
 @app.get("/adaptadores/", tags=["Sistema"])

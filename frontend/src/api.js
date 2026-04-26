@@ -138,6 +138,13 @@ export async function getDashboard() {
   return data;
 }
 
+// ── Catálogo ──────────────────────────────────────────────────────────────────
+
+export async function getCatalogo() {
+  const { data } = await api.get("/catalogo/bancos");
+  return data;
+}
+
 // ── Adaptadores ───────────────────────────────────────────────────────────────
 
 export async function getAdaptadores() {

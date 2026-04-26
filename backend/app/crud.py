@@ -390,10 +390,41 @@ def stats_usuario(db: Session, usuario_id: uuid.UUID) -> dict:
     total_sucessos = sum(l.sucessos for l in lotes)
     total_erros = sum(l.erros for l in lotes)
     taxa = round(total_sucessos / total_cpfs * 100, 1) if total_cpfs else 0.0
+
+    # Consultas por dia (últimos 14 dias) via SQL aggregation
+    desde_14d = datetime.utcnow() - timedelta(days=14)
+    consultas_por_dia_raw = (
+        db.query(
+            func.date(models.Consulta.consultado_em).label("dia"),
+            func.count().label("total"),
+        )
+        .join(models.Lote, models.Consulta.lote_id == models.Lote.id)
+        .filter(
+            models.Lote.usuario_id == usuario_id,
+            models.Consulta.consultado_em >= desde_14d,
+        )
+        .group_by(func.date(models.Consulta.consultado_em))
+        .order_by(func.date(models.Consulta.consultado_em))
+        .all()
+    )
+    consultas_por_dia = [{"dia": str(r.dia), "total": r.total} for r in consultas_por_dia_raw]
+
+    # Margens por banco (agrupando lotes)
+    banco_map: dict = {}
+    for lote in lotes:
+        banco = lote.banco_portal or "outro"
+        if banco not in banco_map:
+            banco_map[banco] = {"banco": banco, "cpfs": 0, "sucessos": 0}
+        banco_map[banco]["cpfs"] += lote.total_cpfs
+        banco_map[banco]["sucessos"] += lote.sucessos
+    margens_por_banco = list(banco_map.values())
+
     return {
         "total_lotes": total_lotes,
         "total_cpfs": total_cpfs,
         "total_sucessos": total_sucessos,
         "total_erros": total_erros,
         "taxa_sucesso_pct": taxa,
+        "consultas_por_dia": consultas_por_dia,
+        "margens_por_banco": margens_por_banco,
     }

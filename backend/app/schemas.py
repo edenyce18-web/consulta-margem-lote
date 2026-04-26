@@ -135,6 +135,17 @@ class UploadLoteResponse(BaseModel):
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
+class ConsultasDia(BaseModel):
+    dia: str
+    total: int
+
+
+class MargemBanco(BaseModel):
+    banco: str
+    cpfs: int
+    sucessos: int
+
+
 class DashboardStats(BaseModel):
     total_lotes: int
     total_cpfs: int
@@ -142,3 +153,5 @@ class DashboardStats(BaseModel):
     total_erros: int
     taxa_sucesso_pct: float
     lotes_recentes: List[LoteResponse] = []
+    consultas_por_dia: List[ConsultasDia] = []
+    margens_por_banco: List[MargemBanco] = []
