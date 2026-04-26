@@ -41,12 +41,15 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+_ALLOWED_ORIGINS = [o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+    max_age=3600,
 )
 
 
@@ -127,7 +130,7 @@ def login(payload: schemas.LoginRequest, request: Request, db: Session = Depends
     return {"access_token": access_token, "refresh_token": refresh_token}
 
 
-@app.post("/auth/refresh", response_model=schemas.AccessToken, tags=["Auth"])
+@app.post("/auth/refresh", response_model=schemas.Token, tags=["Auth"])
 def refresh_token(payload: schemas.RefreshRequest, db: Session = Depends(get_db)):
     token_hash = hash_refresh_token(payload.refresh_token)
     rt = crud.buscar_refresh_token(db, token_hash)
@@ -138,13 +141,12 @@ def refresh_token(payload: schemas.RefreshRequest, db: Session = Depends(get_db)
     if not usuario or not usuario.ativo:
         raise HTTPException(status_code=401, detail="Usuário não encontrado.")
 
-    # Rotação do refresh token
+    # Rotação completa: revoga o antigo e emite novo refresh token
     crud.revogar_refresh_token(db, token_hash)
-    # Note: para simplificar, não emitimos novo refresh token aqui.
-    # O cliente deve fazer novo login após expirar o refresh.
-
+    novo_refresh = criar_refresh_token_db(db, usuario.id)
     access_token = criar_access_token({"sub": usuario.email})
-    return {"access_token": access_token}
+
+    return {"access_token": access_token, "refresh_token": novo_refresh}
 
 
 @app.post("/auth/logout", tags=["Auth"])

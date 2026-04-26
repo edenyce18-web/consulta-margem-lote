@@ -24,13 +24,18 @@ api.interceptors.response.use(
             refresh_token: refreshToken,
           });
           localStorage.setItem("token", data.access_token);
+          if (data.refresh_token) {
+            localStorage.setItem("refresh_token", data.refresh_token);
+          }
           original.headers.Authorization = `Bearer ${data.access_token}`;
           return api(original);
         } catch {
           // refresh falhou — força logout
           localStorage.removeItem("token");
           localStorage.removeItem("refresh_token");
-          window.location.reload();
+          if (window.location.pathname !== "/login") {
+            window.location.href = "/login";
+          }
         }
       }
     }

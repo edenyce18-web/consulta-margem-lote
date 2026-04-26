@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     # Gere com: python -c "import os,base64; print(base64.b64encode(os.urandom(32)).decode())"
     ENCRYPTION_KEY: str = "TROQUE_32BYTES_BASE64_AQUI_OBRIGATORIO="
 
+    # ── CORS ──────────────────────────────────────────────────────────────────
+    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:5173,http://95.111.248.228:8080"
+
     # ── Rate Limiting de Login ────────────────────────────────────────────────
     LOGIN_MAX_ATTEMPTS: int = 5
     LOGIN_LOCKOUT_MINUTES: int = 30
