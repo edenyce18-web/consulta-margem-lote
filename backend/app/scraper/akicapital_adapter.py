@@ -111,17 +111,35 @@ class AkiCapitalAdapter(BaseScraperAdapter):
         try:
             page.wait_for_function(
                 "() => !window.location.href.toLowerCase().includes('login')",
-                timeout=15_000,
+                timeout=30_000,
             )
         except Exception:
+            # Captura URL e texto da página para diagnóstico
+            url_atual = page.url
+            logger.warning("[AkiCapital] Timeout pós-login. URL atual: %s", url_atual)
+
             sel = self._primeiro_seletor(page, self.SEL_AREA_LOGADA)
-            if not sel:
+            if sel:
+                # Encontrou área logada mesmo com URL contendo 'login'
+                pass
+            else:
                 erro_txt = self._texto_seletor(page, [
-                    ".MensagemErro", "#lblErro", ".alert-danger",
-                    "[class*='erro']", "[class*='error']",
+                    ".MensagemErro", "#lblErro", "#lblMensagem",
+                    ".alert-danger", ".alert-error",
+                    "[class*='erro']", "[class*='error']", "[class*='Erro']",
+                    "span[id*='Erro']", "span[id*='Mensagem']",
+                    ".validation-summary-errors",
                 ])
+                # Tenta pegar qualquer texto de alerta visível
+                if not erro_txt:
+                    try:
+                        erro_txt = page.locator("text=/senha|inválid|incorret|bloqueado|expirado/i").first.text_content(timeout=2000)
+                    except Exception:
+                        pass
                 raise RuntimeError(
-                    f"Login falhou. Mensagem do portal: {erro_txt or 'sem detalhes'}"
+                    f"Login falhou (URL: {url_atual}). "
+                    f"Verifique login/senha da credencial. "
+                    f"Mensagem do portal: {erro_txt or 'sem detalhes'}"
                 )
 
         pausa_humana(1.0, 2.0)
