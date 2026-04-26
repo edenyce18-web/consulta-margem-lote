@@ -1,20 +1,24 @@
 version: "3.9"
 
-# Variáveis compartilhadas entre backend e worker
-x-env-scraper: &env-scraper
+x-env-backend: &env-backend
   DATABASE_URL: postgresql://postgres:postgres@db:5432/consulta_margem
   REDIS_URL: redis://redis:6379/0
-  SECRET_KEY: TROQUE_EM_PRODUCAO_USE_SECRETS_MANAGER
-  # AkiCapital
+  SECRET_KEY: ${SECRET_KEY:-TROQUE_EM_PRODUCAO}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:-TROQUE_EM_PRODUCAO_32BYTES_BASE64=}
+  ACCESS_TOKEN_EXPIRE_MINUTES: "15"
+  REFRESH_TOKEN_EXPIRE_DAYS: "7"
+  LOGIN_MAX_ATTEMPTS: "5"
+  LOGIN_LOCKOUT_MINUTES: "30"
+  # AkiCapital (defaults — podem ser sobrescritos por credenciais do usuário)
   AKICAPITAL_URL: "https://akipromotora.app/WebAutorizador/Login/AC.UI.LOGIN.aspx?FISession=7ed4824df157"
-  AKICAPITAL_LOGIN: "02622395230_901902"
-  AKICAPITAL_SENHA: "Efetiva26*"
+  AKICAPITAL_LOGIN: ${AKICAPITAL_LOGIN:-}
+  AKICAPITAL_SENHA: ${AKICAPITAL_SENHA:-}
   # GridSoftware / Roraima
   GRID_URL: "https://consignado.gridsoftware.com.br/grid/login.seam?"
-  GRID_LOGIN: "02622395230"
-  GRID_SENHA: "Manu@2025"
+  GRID_LOGIN: ${GRID_LOGIN:-}
+  GRID_SENHA: ${GRID_SENHA:-}
   # 2Captcha
-  TWOCAPTCHA_API_KEY: "7e42177042c9c211507f578edf43c6fb"
+  TWOCAPTCHA_API_KEY: ${TWOCAPTCHA_API_KEY:-}
   TWOCAPTCHA_TIMEOUT_S: "120"
   TWOCAPTCHA_POLL_INTERVAL_S: "5"
   # Sessões Playwright
@@ -48,8 +52,6 @@ services:
     command: redis-server --save 20 1 --loglevel warning
     volumes:
       - redis_data:/data
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -62,7 +64,7 @@ services:
     container_name: margem_backend
     restart: unless-stopped
     environment:
-      <<: *env-scraper
+      <<: *env-backend
     ports:
       - "8000:8000"
     depends_on:
@@ -85,7 +87,7 @@ services:
       --concurrency=4
       --queues=celery
     environment:
-      <<: *env-scraper
+      <<: *env-backend
     depends_on:
       db:
         condition: service_healthy
@@ -93,15 +95,14 @@ services:
         condition: service_healthy
     volumes:
       - ./backend/app:/app/app
-      - pw_sessions:/tmp/pw_sessions  # sessões compartilhadas com backend
+      - pw_sessions:/tmp/pw_sessions
 
   # ── Flower (monitor Celery) ────────────────────────────────────────────────
   flower:
     build: ./backend
     container_name: margem_flower
     restart: unless-stopped
-    command: >
-      celery -A app.celery_app.celery_app flower --port=5555
+    command: celery -A app.celery_app.celery_app flower --port=5555
     environment:
       REDIS_URL: redis://redis:6379/0
     ports:
@@ -123,4 +124,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  pw_sessions:    # sessões Playwright compartilhadas entre backend e worker
+  pw_sessions:

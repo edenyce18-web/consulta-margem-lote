@@ -1,23 +1,43 @@
 """
 tasks.py — Tarefas Celery para processamento assíncrono de lotes.
-
-Cada tarefa recebe um lote_id e a lista de CPFs, itera sobre eles,
-chama o adaptador de scraping correto via AdapterManager e persiste
-os resultados individuais no PostgreSQL.
 """
 
 from __future__ import annotations
 
 import uuid
 import logging
-from typing import List
+from typing import List, Optional
 
 from app.celery_app import celery_app
 from app.database import SessionLocal
 from app import crud, models
-from app.scraper import consultar_margem   # usa o novo pacote modular
+from app.scraper import consultar_margem
 
 logger = logging.getLogger(__name__)
+
+
+def _carregar_credencial(db, credencial_id: Optional[str]) -> Optional[dict]:
+    """Carrega e descriptografa credencial do banco de dados."""
+    if not credencial_id:
+        return None
+    try:
+        from app.config import settings
+        from app.crypto import decrypt
+
+        cred = crud.buscar_credencial_por_id(db, uuid.UUID(credencial_id))
+        if not cred or cred.deletado_em:
+            logger.warning("Credencial %s não encontrada ou deletada.", credencial_id)
+            return None
+
+        return {
+            "id": str(cred.id),
+            "login": decrypt(cred.login_enc, settings.ENCRYPTION_KEY),
+            "senha": decrypt(cred.senha_enc, settings.ENCRYPTION_KEY),
+            "url":   decrypt(cred.url_enc, settings.ENCRYPTION_KEY) if cred.url_enc else None,
+        }
+    except Exception as exc:
+        logger.exception("Erro ao carregar credencial %s: %s", credencial_id, exc)
+        return None
 
 
 @celery_app.task(
@@ -26,18 +46,21 @@ logger = logging.getLogger(__name__)
     max_retries=2,
     default_retry_delay=30,
 )
-def processar_lote(self, lote_id: str, cpfs: List[str], banco: str = "exemplo"):
+def processar_lote(
+    self,
+    lote_id: str,
+    cpfs: List[str],
+    banco: str = "exemplo",
+    credencial_id: Optional[str] = None,
+):
     """
     Tarefa Celery principal.
 
-    Processa cada CPF do lote sequencialmente, atualizando o banco de
-    dados após cada consulta para permitir polling em tempo real pelo
-    frontend.
-
     Args:
-        lote_id: UUID do lote (string).
-        cpfs:    Lista de CPFs a consultar.
-        banco:   Chave do adaptador (exemplo | aki | grid | ...).
+        lote_id:       UUID do lote (string).
+        cpfs:          Lista de CPFs a consultar.
+        banco:         Chave do adaptador (aki | grid | exemplo).
+        credencial_id: UUID da credencial do usuário (opcional).
     """
     db = SessionLocal()
     lote_uuid = uuid.UUID(lote_id)
@@ -45,12 +68,14 @@ def processar_lote(self, lote_id: str, cpfs: List[str], banco: str = "exemplo"):
     try:
         crud.atualizar_status_lote(db, lote_uuid, models.StatusLote.processando)
         logger.info(
-            "Lote %s iniciado | %d CPFs | portal: %s",
-            lote_id, len(cpfs), banco,
+            "Lote %s iniciado | %d CPFs | portal: %s | credencial: %s",
+            lote_id, len(cpfs), banco, credencial_id or "padrão",
         )
 
+        # Carrega credencial uma vez para todo o lote
+        credencial = _carregar_credencial(db, credencial_id)
+
         for idx, cpf in enumerate(cpfs, start=1):
-            # Publica progresso no backend Celery (visível via Flower)
             self.update_state(
                 state="PROGRESS",
                 meta={
@@ -62,7 +87,7 @@ def processar_lote(self, lote_id: str, cpfs: List[str], banco: str = "exemplo"):
             )
 
             try:
-                resultado = consultar_margem(cpf=cpf, banco=banco)
+                resultado = consultar_margem(cpf=cpf, banco=banco, credencial=credencial)
             except Exception as exc:
                 logger.exception("Erro ao consultar CPF %s: %s", cpf, exc)
                 resultado = {
@@ -78,7 +103,6 @@ def processar_lote(self, lote_id: str, cpfs: List[str], banco: str = "exemplo"):
                     "dados_brutos":      None,
                 }
 
-            # Persiste resultado no banco
             crud.atualizar_consulta(db, lote_uuid, cpf, resultado)
             sucesso = resultado.get("status_consulta") == "sucesso"
             crud.incrementar_processado(db, lote_uuid, sucesso=sucesso)

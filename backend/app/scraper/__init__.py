@@ -2,37 +2,31 @@
 scraper/__init__.py
 ────────────────────
 Ponto de entrada do pacote de scrapers.
-
-Importar este pacote garante que todos os adaptadores se auto-registrem
-no AdapterManager. Basta adicionar novos adaptadores aqui para que
-estejam disponíveis em toda a aplicação.
-
-Uso:
-    from app.scraper import consultar_margem, listar_adaptadores
-    from app.scraper.manager import AdapterManager
 """
 
-# Importa o manager primeiro (sem dependência circular)
 from app.scraper.manager import AdapterManager  # noqa: F401
 
-# Auto-registro: cada import abaixo executa o decorador @AdapterManager.registrar(...)
+# Auto-registro
 from app.scraper.exemplo_adapter import PortalExemploAdapter        # noqa: F401
 from app.scraper.akicapital_adapter import AkiCapitalAdapter        # noqa: F401
 from app.scraper.gridsoftware_adapter import GridSoftwareAdapter    # noqa: F401
 
 
-def consultar_margem(cpf: str, banco: str = "exemplo") -> dict:
+def consultar_margem(
+    cpf: str,
+    banco: str = "exemplo",
+    credencial: dict = None,
+) -> dict:
     """
-    Interface pública — equivalente a AdapterManager.consultar().
+    Interface pública para consulta de margem.
 
     Args:
-        cpf:   CPF com ou sem formatação.
-        banco: Chave do adaptador (exemplo | aki | grid | ...).
-
-    Returns:
-        dict com resultado da consulta de margem.
+        cpf:        CPF com ou sem formatação.
+        banco:      Chave do adaptador (exemplo | aki | grid).
+        credencial: Dict com chaves 'login', 'senha', 'url', 'id' (opcional).
+                    Se None, usa configurações padrão do .env.
     """
-    return AdapterManager.consultar(cpf=cpf, banco=banco)
+    return AdapterManager.consultar(cpf=cpf, banco=banco, credencial=credencial)
 
 
 def listar_adaptadores() -> list[str]:

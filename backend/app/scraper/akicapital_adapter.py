@@ -3,38 +3,8 @@ scraper/akicapital_adapter.py
 ──────────────────────────────
 Adaptador para o portal AkiCapital (WebAutorizador ASP.NET).
 
-URL:    https://akipromotora.app/WebAutorizador/Login/AC.UI.LOGIN.aspx?FISession=7ed4824df157
-Login:  02622395230_901902 / Efetiva26*
-
-Estrutura da página de resultado (conforme tela real):
-  ┌──────────────────────────────────────────────────────┐
-  │ CPF: 46733671700   Nome: BARBARA RODRIGUES MAGALHAES │
-  │ Tipo Vínculo: Servidor  Órgão: 25000-MIN.SAUDE  Mat. │
-  ├──────────────────────────────────────────────────────┤
-  │ EMPRÉSTIMO BANCOS PRIVADOS                           │
-  │   Empréstimo    │ Não Autorizado                     │
-  │   Portabilidade │ Não Autorizado                     │
-  ├──────────────────────────────────────────────────────┤
-  │ CARTÃO DE CRÉDITO                                    │
-  │   Cartão de Crédito │ Não Autorizado                 │
-  ├──────────────────────────────────────────────────────┤
-  │ CARTÃO BENEFÍCIO    Margem Consignável: R$ 39,75     │
-  │   Cartão de Benefício │ Autorizado                   │
-  └──────────────────────────────────────────────────────┘
-
-Campos extraídos:
-  - nome_titular
-  - tipo_vinculo, orgao, matricula
-  - emprestimo_situacao      (Autorizado / Não Autorizado)
-  - portabilidade_situacao   (Autorizado / Não Autorizado)
-  - cartao_credito_situacao  (Autorizado / Não Autorizado)
-  - cartao_beneficio_situacao (Autorizado / Não Autorizado)
-  - margem_beneficio         (float — só presente se Autorizado)
-
-  status_consulta:
-    "sucesso"    → pelo menos um produto Autorizado
-    "sem_margem" → todos Não Autorizado (cliente existe mas sem autorização)
-    "erro"       → falha técnica
+Suporte a credenciais dinâmicas por usuário:
+    adapter = AkiCapitalAdapter(credencial={"login": "...", "senha": "...", "url": "..."})
 """
 
 from __future__ import annotations
@@ -60,63 +30,55 @@ logger = logging.getLogger(__name__)
 
 @AdapterManager.registrar("aki")
 class AkiCapitalAdapter(BaseScraperAdapter):
-    """
-    Adaptador para o portal AkiCapital / WebAutorizador ASP.NET.
-
-    Extrai os campos de autorização de cada produto consignado:
-    Empréstimo, Portabilidade, Cartão de Crédito e Cartão Benefício
-    (com Margem Consignável quando disponível).
-    """
+    """Adaptador para o portal AkiCapital / WebAutorizador ASP.NET."""
 
     NOME_BANCO   = "AkiCapital"
     CHAVE_SESSAO = "akicapital"
-    URL_LOGIN    = settings.AKICAPITAL_URL
 
-    # ── Seletores — tela de login ─────────────────────────────────────────────
+    # URL padrão (pode ser sobrescrita pela credencial do usuário)
+    _URL_LOGIN_DEFAULT = settings.AKICAPITAL_URL
+
+    # ── Seletores ─────────────────────────────────────────────────────────────
     SEL_USUARIO = "#EUsuario_CAMPO"
     SEL_SENHA   = "#ESenha_CAMPO"
     SEL_ENTRAR  = "#lnkEntrar"
 
-    # ── Seletores — área logada ───────────────────────────────────────────────
     SEL_AREA_LOGADA = [
-        "#lnkSair",
-        "#lnkLogout",
-        ".menu-principal",
-        "#divMenuTopo",
-        "[id*='LogOff']",
-        "[id*='Logout']",
+        "#lnkSair", "#lnkLogout", ".menu-principal",
+        "#divMenuTopo", "[id*='LogOff']", "[id*='Logout']",
     ]
-
-    # ── Seletores — campo de CPF na consulta ─────────────────────────────────
     SEL_CAMPO_CPF = [
-        "#ECPF_CAMPO",
-        "#txtCPF",
-        "input[id*='CPF']",
-        "input[name*='cpf']",
-        "input[placeholder*='CPF']",
+        "#ECPF_CAMPO", "#txtCPF", "input[id*='CPF']",
+        "input[name*='cpf']", "input[placeholder*='CPF']",
     ]
-
-    # ── Seletores — botão consultar ───────────────────────────────────────────
     SEL_BTN_CONSULTAR = [
-        "#lnkConsultar",
-        "#btnConsultar",
-        "#lnkPesquisar",
+        "#lnkConsultar", "#btnConsultar", "#lnkPesquisar",
         "input[type='submit'][value*='Consultar']",
-        "a[id*='Consultar']",
-        "button:has-text('Consultar')",
+        "a[id*='Consultar']", "button:has-text('Consultar')",
     ]
-
-    # ── Seletores — presença de resultado ────────────────────────────────────
     SEL_RESULTADO = [
         "td:has-text('EMPRÉSTIMO BANCOS PRIVADOS')",
         "td:has-text('CARTÃO DE CRÉDITO')",
         "td:has-text('CARTÃO BENEFÍCIO')",
         "td:has-text('Empréstimo Bancos Privados')",
-        "#GridResultados",
-        "#tblMargem",
-        "#divResultado",
-        "table[id*='Grid']",
+        "#GridResultados", "#tblMargem", "#divResultado", "table[id*='Grid']",
     ]
+
+    def __init__(self, credencial: Optional[dict] = None):
+        super().__init__(credencial)
+        # URL pode ser sobrescrita pela credencial do usuário
+        self.URL_LOGIN = (
+            (credencial or {}).get("url")
+            or self._URL_LOGIN_DEFAULT
+        )
+
+    @property
+    def _login(self) -> str:
+        return self._credencial.get("login") or settings.AKICAPITAL_LOGIN
+
+    @property
+    def _senha(self) -> str:
+        return self._credencial.get("senha") or settings.AKICAPITAL_SENHA
 
     # ── Verificação de sessão ─────────────────────────────────────────────────
 
@@ -136,11 +98,11 @@ class AkiCapitalAdapter(BaseScraperAdapter):
         page.wait_for_selector(self.SEL_USUARIO, state="visible", timeout=TIMEOUT_EL)
 
         page.click(self.SEL_USUARIO)
-        digitar_lento(page, self.SEL_USUARIO, settings.AKICAPITAL_LOGIN)
+        digitar_lento(page, self.SEL_USUARIO, self._login)
         pausa_humana(0.5, 1.0)
 
         page.click(self.SEL_SENHA)
-        digitar_lento(page, self.SEL_SENHA, settings.AKICAPITAL_SENHA)
+        digitar_lento(page, self.SEL_SENHA, self._senha)
         pausa_humana(0.5, 1.2)
 
         page.click(self.SEL_ENTRAR)
@@ -165,7 +127,7 @@ class AkiCapitalAdapter(BaseScraperAdapter):
         pausa_humana(1.0, 2.0)
         logger.info("[AkiCapital] Login concluído. URL atual: %s", page.url)
 
-    # ── Navegação para tela de consulta ──────────────────────────────────────
+    # ── Navegação para consulta ───────────────────────────────────────────────
 
     def _navegar_para_consulta(self, page) -> None:
         sel_menu = self._primeiro_seletor(page, [
@@ -182,7 +144,6 @@ class AkiCapitalAdapter(BaseScraperAdapter):
             page.click(sel_menu)
             page.wait_for_load_state("networkidle", timeout=TIMEOUT_NAV)
             pausa_humana(1.0, 2.0)
-            logger.info("[AkiCapital] Navegou para consulta via menu.")
             return
 
         base = re.sub(r"/Login/.*", "", self.URL_LOGIN.split("?")[0])
@@ -191,32 +152,27 @@ class AkiCapitalAdapter(BaseScraperAdapter):
         page.goto(url_consulta, wait_until="networkidle", timeout=TIMEOUT_NAV)
         pausa_humana(1.0, 2.0)
 
-    # ── Extração completa ─────────────────────────────────────────────────────
+    # ── Extração ──────────────────────────────────────────────────────────────
 
     def _extrair_margem(self, page, cpf: str) -> dict:
         self._navegar_para_consulta(page)
 
-        # ── Insere CPF ────────────────────────────────────────────────────────
         campo_cpf = self._primeiro_seletor(page, self.SEL_CAMPO_CPF)
         if not campo_cpf:
             return resultado_erro(
-                "Campo CPF não encontrado na página de consulta.",
-                cpf, self.NOME_BANCO,
+                "Campo CPF não encontrado na página de consulta.", cpf, self.NOME_BANCO
             )
 
-        # Limpa campo e digita o CPF formatado
         page.fill(campo_cpf, "")
         digitar_lento(page, campo_cpf, formatar_cpf(cpf))
         pausa_humana(0.5, 1.0)
 
-        # ── Clica em consultar ────────────────────────────────────────────────
         btn = self._primeiro_seletor(page, self.SEL_BTN_CONSULTAR)
         if btn:
             page.click(btn)
         else:
             page.keyboard.press("Enter")
 
-        # ── Aguarda resultado ─────────────────────────────────────────────────
         try:
             page.wait_for_selector(
                 ", ".join(self.SEL_RESULTADO),
@@ -235,51 +191,35 @@ class AkiCapitalAdapter(BaseScraperAdapter):
 
         pausa_humana(0.5, 1.0)
 
-        # ── Extrai dados do servidor ──────────────────────────────────────────
         nome_txt     = self._extrair_celula_apos(page, "Nome")
         orgao_txt    = self._extrair_celula_apos(page, "Órgão")
         vinculo_txt  = self._extrair_celula_apos(page, "Tipo Vínculo")
         matricula_txt = self._extrair_celula_apos(page, "Matrícula")
 
-        # ── Extrai situação de cada produto ───────────────────────────────────
         emp_sit = self._situacao_produto(page, "Empréstimo")
         cc_sit  = self._situacao_produto(page, "Cartão de Crédito")
         cb_sit  = self._situacao_produto(page, "Cartão de Benefício")
 
-        # ── Margem Consignável do Cartão Benefício ────────────────────────────
         margem_beneficio = self._extrair_margem_beneficio(page)
 
-        # ── Determina status geral ────────────────────────────────────────────
         autorizados = [s for s in [emp_sit, cc_sit, cb_sit]
                        if s and "autorizado" in s.lower() and "não" not in s.lower()]
         status = "sucesso" if (autorizados or margem_beneficio) else "sem_margem"
-
-        logger.info(
-            "[AkiCapital] CPF %s | Nome: %s | Emp: %s | CC: %s | CB: %s | MargBen: R$%s",
-            cpf, nome_txt, emp_sit, cc_sit, cb_sit, margem_beneficio,
-        )
 
         return {
             "cpf":             cpf,
             "status_consulta": status,
             "mensagem_erro":   None,
-
-            # Dados do servidor
-            "nome_titular": nome_txt,
-            "orgao":        orgao_txt,
-            "tipo_vinculo": vinculo_txt,
-            "matricula":    matricula_txt,
-
-            # Margens em R$ — Aki só expõe o valor do Cartão Benefício
+            "nome_titular":    nome_txt,
+            "orgao":           orgao_txt,
+            "tipo_vinculo":    vinculo_txt,
+            "matricula":       matricula_txt,
             "margem_disponivel": None,
             "margem_cartao":     None,
             "margem_beneficio":  margem_beneficio,
-
-            # Situação de autorização por produto
             "emprestimo_situacao":       emp_sit,
             "cartao_credito_situacao":   cc_sit,
             "cartao_beneficio_situacao": cb_sit,
-
             "banco": self.NOME_BANCO,
             "dados_brutos": json.dumps({
                 "emprestimo_situacao":       emp_sit,
@@ -293,14 +233,6 @@ class AkiCapitalAdapter(BaseScraperAdapter):
     # ── Helpers de extração ───────────────────────────────────────────────────
 
     def _extrair_celula_apos(self, page, rotulo: str) -> Optional[str]:
-        """
-        Localiza uma célula de tabela com o rótulo exato e retorna
-        o texto da célula adjacente (irmã imediata).
-
-        Funciona com estruturas:
-          <td>Rótulo</td><td>Valor</td>
-          <td>Rótulo:</td><td>Valor</td>
-        """
         try:
             cells = page.locator("td").all()
             for i, cell in enumerate(cells):
@@ -314,14 +246,6 @@ class AkiCapitalAdapter(BaseScraperAdapter):
         return None
 
     def _situacao_produto(self, page, nome_produto: str) -> Optional[str]:
-        """
-        Localiza a linha de um produto na tabela de autorizações e retorna
-        a coluna "Situação" (Autorizado / Não Autorizado).
-
-        Estrutura esperada:
-          <tr><td>Empréstimo</td><td>Autorizado</td></tr>
-          <tr><td>Portabilidade</td><td>Não Autorizado</td></tr>
-        """
         try:
             rows = page.locator("tr").all()
             for row in rows:
@@ -336,16 +260,7 @@ class AkiCapitalAdapter(BaseScraperAdapter):
         return None
 
     def _extrair_margem_beneficio(self, page) -> Optional[float]:
-        """
-        Localiza o texto 'Margem Consignável: R$ XX,XX' na seção
-        CARTÃO BENEFÍCIO e extrai o valor numérico.
-
-        Exemplos de texto encontrado na página:
-          "CARTÃO BENEFÍCIO   Margem Consignável: R$ 39,75"
-          "Margem Consignável: R$ 39,75"
-        """
         try:
-            # Tenta seletor direto com texto
             for sel in [
                 "td:has-text('Margem Consignável')",
                 "th:has-text('Margem Consignável')",
@@ -361,7 +276,6 @@ class AkiCapitalAdapter(BaseScraperAdapter):
                     if match:
                         return parse_moeda(match.group(1))
 
-            # Fallback: varre todo o HTML em busca do padrão
             html = page.content()
             match = re.search(
                 r"Margem\s+Consign[aá]vel\s*:\s*R\$\s*([\d.,]+)",

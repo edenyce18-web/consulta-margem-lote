@@ -25,7 +25,17 @@ class UsuarioResponse(BaseModel):
 
 class Token(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
+
+
+class AccessToken(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
 
 
 class LoginRequest(BaseModel):
@@ -33,29 +43,53 @@ class LoginRequest(BaseModel):
     senha: str
 
 
+# ── Credenciais ───────────────────────────────────────────────────────────────
+
+class CredencialCreate(BaseModel):
+    nome: str
+    tipo_instituicao: str   # "aki" | "grid" | "exemplo"
+    login: str
+    senha: str
+    url: Optional[str] = None
+
+
+class CredencialUpdate(BaseModel):
+    nome: Optional[str] = None
+    login: Optional[str] = None
+    senha: Optional[str] = None
+    url: Optional[str] = None
+    status: Optional[str] = None
+
+
+class CredencialResponse(BaseModel):
+    id: uuid.UUID
+    nome: str
+    tipo_instituicao: str
+    status: str
+    mensagem_erro: Optional[str]
+    testada_em: Optional[datetime]
+    criado_em: datetime
+    # login e senha NUNCA retornados
+
+    class Config:
+        from_attributes = True
+
+
 # ── Consulta ──────────────────────────────────────────────────────────────────
 
 class ConsultaResponse(BaseModel):
     id: uuid.UUID
     cpf: str
-
-    # Dados do servidor
     nome_titular: Optional[str]
     orgao: Optional[str]
     tipo_vinculo: Optional[str]
     matricula: Optional[str]
-
-    # Margens em R$ (quando disponíveis)
     margem_disponivel: Optional[Decimal]
     margem_cartao: Optional[Decimal]
     margem_beneficio: Optional[Decimal]
-
-    # Situação de autorização (Aki Capital)
     emprestimo_situacao: Optional[str]
     cartao_credito_situacao: Optional[str]
     cartao_beneficio_situacao: Optional[str]
-
-    # Metadados
     banco: Optional[str]
     status_consulta: str
     mensagem_erro: Optional[str]
@@ -71,6 +105,7 @@ class LoteResponse(BaseModel):
     id: uuid.UUID
     arquivo_original: Optional[str]
     banco_portal: Optional[str]
+    credencial_id: Optional[uuid.UUID]
     total_cpfs: int
     processados: int
     sucessos: int
@@ -96,3 +131,14 @@ class UploadLoteResponse(BaseModel):
     lote_id: uuid.UUID
     mensagem: str
     total_cpfs: int
+
+
+# ── Dashboard ─────────────────────────────────────────────────────────────────
+
+class DashboardStats(BaseModel):
+    total_lotes: int
+    total_cpfs: int
+    total_sucessos: int
+    total_erros: int
+    taxa_sucesso_pct: float
+    lotes_recentes: List[LoteResponse] = []

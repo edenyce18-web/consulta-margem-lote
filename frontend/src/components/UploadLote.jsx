@@ -1,46 +1,57 @@
-import { useState, useRef } from "react";
-import { uploadLote } from "../api";
-
-const BANCOS = [
-  { value: "aki",  label: "AkiCapital (SIAPE / Federal)" },
-  { value: "grid", label: "GridSoftware / Roraima (GOV RR)" },
-];
+import { useState, useRef, useEffect } from "react";
+import toast from "react-hot-toast";
+import { uploadLote, getCredenciais } from "../api";
 
 export default function UploadLote({ onLoteIniciado }) {
-  const [arquivo, setArquivo] = useState(null);
-  const [banco, setBanco] = useState("aki");
-  const [carregando, setCarregando] = useState(false);
-  const [erro, setErro] = useState(null);
-  const [sucesso, setSucesso] = useState(null);
+  const [arquivo, setArquivo]         = useState(null);
+  const [credenciais, setCredenciais] = useState([]);
+  const [credencialId, setCredencialId] = useState("");
+  const [banco, setBanco]             = useState("aki");
+  const [carregando, setCarregando]   = useState(false);
   const inputRef = useRef(null);
+
+  useEffect(() => {
+    getCredenciais().then(setCredenciais).catch(() => {});
+  }, []);
+
+  // Quando seleciona credencial, sincroniza o banco
+  const handleCredencial = (id) => {
+    setCredencialId(id);
+    if (id) {
+      const cred = credenciais.find((c) => c.id === id);
+      if (cred) setBanco(cred.tipo_instituicao);
+    }
+  };
 
   const handleDrop = (e) => {
     e.preventDefault();
     const f = e.dataTransfer.files[0];
     if (f?.name.toLowerCase().endsWith(".csv")) {
       setArquivo(f);
-      setErro(null);
     } else {
-      setErro("Apenas arquivos .csv são aceitos.");
+      toast.error("Apenas arquivos .csv são aceitos.");
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!arquivo) return setErro("Selecione um arquivo CSV com os CPFs.");
+    if (!arquivo) return toast.error("Selecione um arquivo CSV com os CPFs.");
+    if (!credencialId) return toast.error("Selecione uma credencial antes de iniciar.");
+
     setCarregando(true);
-    setErro(null);
-    setSucesso(null);
     try {
-      const resp = await uploadLote(arquivo, banco);
-      setSucesso(resp);
+      const resp = await uploadLote(arquivo, banco, credencialId);
+      toast.success(`Lote criado! ${resp.total_cpfs} CPFs em processamento.`);
       onLoteIniciado(resp.lote_id);
+      setArquivo(null);
     } catch (err) {
-      setErro(err.response?.data?.detail || "Erro ao enviar o arquivo.");
+      toast.error(err.response?.data?.detail || "Erro ao enviar o arquivo.");
     } finally {
       setCarregando(false);
     }
   };
+
+  const credSelecionada = credenciais.find((c) => c.id === credencialId);
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
@@ -53,6 +64,36 @@ export default function UploadLote({ onLoteIniciado }) {
       </h2>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Seleção de credencial */}
+        <div>
+          <label className="block text-sm font-medium text-slate-600 mb-1">
+            Credencial de Acesso *
+          </label>
+          {credenciais.length === 0 ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
+              Nenhuma credencial cadastrada. Vá em <strong>Credenciais</strong> e adicione seu acesso ao portal.
+            </div>
+          ) : (
+            <select
+              value={credencialId}
+              onChange={(e) => handleCredencial(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="">— Selecione uma credencial —</option>
+              {credenciais.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nome} ({c.tipo_instituicao.toUpperCase()})
+                </option>
+              ))}
+            </select>
+          )}
+          {credSelecionada && (
+            <p className="text-xs text-slate-500 mt-1">
+              Portal: {credSelecionada.tipo_instituicao} · Status: {credSelecionada.status}
+            </p>
+          )}
+        </div>
+
         {/* Drop zone */}
         <div
           onDrop={handleDrop}
@@ -67,7 +108,7 @@ export default function UploadLote({ onLoteIniciado }) {
             className="hidden"
             onChange={(e) => {
               setArquivo(e.target.files[0]);
-              setErro(null);
+              e.target.value = "";
             }}
           />
           {arquivo ? (
@@ -95,62 +136,9 @@ export default function UploadLote({ onLoteIniciado }) {
           )}
         </div>
 
-        {/* Seletor de portal */}
-        <div>
-          <label className="block text-sm font-medium text-slate-600 mb-1">
-            Portal de Consulta
-          </label>
-          <select
-            value={banco}
-            onChange={(e) => setBanco(e.target.value)}
-            className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-          >
-            {BANCOS.map((b) => (
-              <option key={b.value} value={b.value}>{b.label}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Informação do portal selecionado */}
-        {banco === "aki" && (
-          <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-xs text-blue-700">
-            <strong>AkiCapital:</strong> Captura Empréstimo, Cartão de Crédito e Cartão Benefício
-            (Autorizado/Não Autorizado) + Margem Consignável do Benefício.
-          </div>
-        )}
-        {banco === "grid" && (
-          <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3 text-xs text-indigo-700">
-            <strong>GridSoftware / Roraima:</strong> Captura Margem de Empréstimo e Margem de
-            Cartão de Crédito em R$.
-          </div>
-        )}
-
-        {/* Feedback */}
-        {erro && (
-          <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm">
-            <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            {erro}
-          </div>
-        )}
-        {sucesso && (
-          <div className="flex items-start gap-2 bg-green-50 border border-green-200 text-green-700 rounded-lg p-3 text-sm">
-            <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <div>
-              <strong>Lote criado!</strong>{" "}
-              {sucesso.total_cpfs} CPFs em processamento.
-            </div>
-          </div>
-        )}
-
         <button
           type="submit"
-          disabled={carregando || !arquivo}
+          disabled={carregando || !arquivo || !credencialId}
           className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm"
         >
           {carregando ? "Enviando..." : "Iniciar Consulta em Lote"}
