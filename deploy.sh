@@ -34,6 +34,12 @@ $COMPOSE up -d
 sleep 10
 echo "      OK!"
 
+# ── 4b. Garante senha correta do PostgreSQL (persiste ALTER USER no volume) ───
+echo "[4b] Verificando senha do banco..."
+docker exec margem_db psql -U postgres -c "ALTER USER postgres PASSWORD 'postgres';" 2>/dev/null \
+  && echo "      Senha verificada/corrigida." \
+  || echo "      AVISO: não foi possível verificar senha. Backend pode falhar."
+
 # ── 5. Aplica migrations Alembic ──────────────────────────────────────────────
 echo "[5/6] Aplicando migrations do banco..."
 docker exec margem_backend sh -c "cd /app && alembic upgrade head"
