@@ -270,11 +270,15 @@ async def upload_lote(
 
     conteudo = await arquivo.read()
     try:
+        # Auto-detecta separador: testa ; e , na primeira linha
+        primeira_linha = conteudo.split(b"\n")[0].decode("utf-8", errors="replace")
+        sep = ";" if primeira_linha.count(";") >= primeira_linha.count(",") else ","
         df = pd.read_csv(
             io.BytesIO(conteudo),
             dtype=str,
-            on_bad_lines="skip",   # ignora linhas com colunas a mais/menos
-            engine="python",       # motor mais tolerante a arquivos irregulares
+            sep=sep,
+            on_bad_lines="skip",
+            engine="python",
             encoding_errors="replace",
         )
     except Exception as e:
@@ -282,9 +286,8 @@ async def upload_lote(
 
     df.columns = [c.strip().lower() for c in df.columns]
 
-    # Aceita coluna chamada 'cpf' ou primeira coluna se não houver cabeçalho padrão
+    # Aceita coluna 'cpf' ou primeira coluna se contiver CPFs sem cabeçalho padrão
     if "cpf" not in df.columns:
-        # Tenta detectar se a primeira coluna contém CPFs (só dígitos, 11 chars)
         primeira = df.columns[0]
         amostra = df[primeira].dropna().str.strip().str.replace(r"\D", "", regex=True)
         if amostra.str.len().between(10, 11).mean() > 0.5:
