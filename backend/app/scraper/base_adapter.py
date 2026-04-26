@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from abc import ABC, abstractmethod
+from functools import wraps
 from pathlib import Path
 from typing import Optional
 
@@ -31,6 +33,59 @@ _SESSION_DIR.mkdir(parents=True, exist_ok=True)
 TIMEOUT_NAV  = 60_000   # 60s — portais lentos precisam de tempo
 TIMEOUT_EL   = 50_000   # 50s
 TIMEOUT_CONS = 120_000  # 120s — aguarda resultado da consulta
+
+# ── Decoradores de resiliência ────────────────────────────────────────────────
+
+def medir_tempo(func):
+    """Decorator que loga o tempo de execução de cada método."""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        t0 = time.time()
+        nome = func.__qualname__
+        logger.info("⏱  Iniciando %s", nome)
+        try:
+            resultado = func(*args, **kwargs)
+            logger.info("✅ %s concluído em %.1fs", nome, time.time() - t0)
+            return resultado
+        except Exception as exc:
+            logger.error("❌ %s falhou após %.1fs: %s", nome, time.time() - t0, exc)
+            raise
+    return wrapper
+
+
+def retry_com_backoff(tentativas: int = 3, delay_inicial: float = 5.0):
+    """
+    Decorator para retry com backoff exponencial.
+    Captura TimeoutError e Exception genérica, aguarda e tenta novamente.
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            delay = delay_inicial
+            ultima_exc = None
+            for tentativa in range(1, tentativas + 1):
+                try:
+                    if tentativa > 1:
+                        logger.info(
+                            "🔄 %s — tentativa %d/%d (aguardando %.0fs)",
+                            func.__qualname__, tentativa, tentativas, delay,
+                        )
+                        time.sleep(delay)
+                        delay = min(delay * 2, 60)  # máximo 60s entre tentativas
+                    return func(*args, **kwargs)
+                except Exception as exc:
+                    ultima_exc = exc
+                    logger.warning(
+                        "⚠  %s — tentativa %d/%d falhou: %s",
+                        func.__qualname__, tentativa, tentativas, exc,
+                    )
+            logger.error(
+                "❌ %s — todas as %d tentativas falharam. Último erro: %s",
+                func.__qualname__, tentativas, ultima_exc,
+            )
+            raise ultima_exc
+        return wrapper
+    return decorator
 
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -121,6 +176,8 @@ class BaseScraperAdapter(ABC):
 
     # ── Método público ────────────────────────────────────────────────────────
 
+    @medir_tempo
+    @retry_com_backoff(tentativas=3, delay_inicial=5.0)
     def consultar(self, cpf: str) -> dict:
         import time
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout

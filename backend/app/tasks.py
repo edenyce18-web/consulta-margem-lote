@@ -4,6 +4,7 @@ tasks.py — Tarefas Celery para processamento assíncrono de lotes.
 
 from __future__ import annotations
 
+import time
 import uuid
 import logging
 from typing import List, Optional
@@ -11,9 +12,15 @@ from typing import List, Optional
 from app.celery_app import celery_app
 from app.database import SessionLocal
 from app import crud, models
-from app.scraper import consultar_margem
+from app.scraper import consultar_margem, listar_adaptadores
+from app.scraper.manager import AdapterManager
+from app.scraper.browser_pool import BrowserLote
 
 logger = logging.getLogger(__name__)
+
+# Delay (segundos) entre CPFs após um timeout, para dar respiro ao portal
+_DELAY_POS_TIMEOUT = 3.0
+_DELAY_POS_ERRO    = 1.0
 
 
 def _carregar_credencial(db, credencial_id: Optional[str]) -> Optional[dict]:
@@ -64,59 +71,90 @@ def processar_lote(
     """
     db = SessionLocal()
     lote_uuid = uuid.UUID(lote_id)
+    t_lote = time.time()
 
     try:
         crud.atualizar_status_lote(db, lote_uuid, models.StatusLote.processando)
         logger.info(
-            "Lote %s iniciado | %d CPFs | portal: %s | credencial: %s",
+            "🚀 Lote %s iniciado | %d CPFs | portal: %s | credencial: %s",
             lote_id, len(cpfs), banco, credencial_id or "padrão",
         )
 
         # Carrega credencial uma vez para todo o lote
         credencial = _carregar_credencial(db, credencial_id)
 
-        for idx, cpf in enumerate(cpfs, start=1):
-            self.update_state(
-                state="PROGRESS",
-                meta={
-                    "atual":     idx,
-                    "total":     len(cpfs),
-                    "cpf_atual": cpf,
-                    "banco":     banco,
-                },
-            )
+        # Cria o adapter com credencial (reutilizado em todos os CPFs do lote)
+        adapter = AdapterManager.obter(banco, credencial=credencial)
 
-            try:
-                resultado = consultar_margem(cpf=cpf, banco=banco, credencial=credencial)
-            except Exception as exc:
-                logger.exception("Erro ao consultar CPF %s: %s", cpf, exc)
-                resultado = {
-                    "cpf":               cpf,
-                    "status_consulta":   "erro",
-                    "mensagem_erro":     str(exc),
-                    "margem_disponivel": None,
-                    "margem_cartao":     None,
-                    "margem_beneficio":  None,
-                    "nome_titular":      None,
-                    "banco":             banco,
-                    "orgao":             None,
-                    "dados_brutos":      None,
-                }
+        consecutivos_timeout = 0  # rastreia timeouts seguidos para dar mais pausa
 
-            crud.atualizar_consulta(db, lote_uuid, cpf, resultado)
-            sucesso = resultado.get("status_consulta") == "sucesso"
-            crud.incrementar_processado(db, lote_uuid, sucesso=sucesso)
+        with BrowserLote(adapter, cpfs_total=len(cpfs)) as bl:
+            for idx, cpf in enumerate(cpfs, start=1):
+                self.update_state(
+                    state="PROGRESS",
+                    meta={
+                        "atual":     idx,
+                        "total":     len(cpfs),
+                        "cpf_atual": cpf,
+                        "banco":     banco,
+                    },
+                )
 
-            logger.info(
-                "[%d/%d] CPF %s → %s",
-                idx, len(cpfs), cpf, resultado.get("status_consulta"),
-            )
+                t_cpf = time.time()
+                try:
+                    resultado = bl.consultar(cpf)
+                    consecutivos_timeout = 0  # reset após sucesso
+
+                except Exception as exc:
+                    msg = str(exc)
+                    is_timeout = "timeout" in msg.lower() or "Timeout" in msg
+                    consecutivos_timeout += 1 if is_timeout else 0
+
+                    logger.warning(
+                        "⚠  CPF %s — %s após %.1fs (consecutivos: %d)",
+                        cpf, "TIMEOUT" if is_timeout else "ERRO",
+                        time.time() - t_cpf, consecutivos_timeout,
+                    )
+
+                    resultado = {
+                        "cpf":               cpf,
+                        "status_consulta":   "erro",
+                        "mensagem_erro":     msg,
+                        "margem_disponivel": None,
+                        "margem_cartao":     None,
+                        "margem_beneficio":  None,
+                        "nome_titular":      None,
+                        "banco":             banco,
+                        "orgao":             None,
+                        "dados_brutos":      None,
+                    }
+
+                    # Delay entre CPFs para não sobrecarregar o portal
+                    pausa = _DELAY_POS_TIMEOUT * consecutivos_timeout if is_timeout else _DELAY_POS_ERRO
+                    pausa = min(pausa, 30)  # máximo 30s de pausa
+                    if pausa > 0:
+                        logger.info("⏳ Aguardando %.0fs antes do próximo CPF...", pausa)
+                        time.sleep(pausa)
+
+                crud.atualizar_consulta(db, lote_uuid, cpf, resultado)
+                sucesso = resultado.get("status_consulta") == "sucesso"
+                crud.incrementar_processado(db, lote_uuid, sucesso=sucesso)
+
+                logger.info(
+                    "📋 [%d/%d] CPF %s → %s (%.1fs)",
+                    idx, len(cpfs), cpf,
+                    resultado.get("status_consulta"),
+                    time.time() - t_cpf,
+                )
 
         crud.atualizar_status_lote(db, lote_uuid, models.StatusLote.concluido)
-        logger.info("Lote %s concluído.", lote_id)
+        logger.info(
+            "✅ Lote %s concluído em %.1fs | %d CPFs",
+            lote_id, time.time() - t_lote, len(cpfs),
+        )
 
     except Exception as exc:
-        logger.exception("Falha crítica no lote %s: %s", lote_id, exc)
+        logger.exception("❌ Falha crítica no lote %s: %s", lote_id, exc)
         crud.atualizar_status_lote(
             db, lote_uuid,
             models.StatusLote.erro,
