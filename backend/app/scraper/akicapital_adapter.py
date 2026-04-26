@@ -86,13 +86,16 @@ class AkiCapitalAdapter(BaseScraperAdapter):
         url = page.url.lower()
         if "login" in url:
             return False
+        # FISession na URL indica sessão autenticada no WebAutorizador
+        if "fisession=" in url:
+            return True
         return self._primeiro_seletor(page, self.SEL_AREA_LOGADA) is not None
 
     # ── Autenticação ──────────────────────────────────────────────────────────
 
     def _fazer_login(self, page) -> None:
         logger.info("[AkiCapital] Navegando para tela de login.")
-        page.goto(self.URL_LOGIN, wait_until="networkidle", timeout=TIMEOUT_NAV)
+        page.goto(self.URL_LOGIN, wait_until="domcontentloaded", timeout=TIMEOUT_NAV)
         pausa_humana(1.0, 2.0)
 
         page.wait_for_selector(self.SEL_USUARIO, state="visible", timeout=TIMEOUT_EL)
@@ -148,6 +151,7 @@ class AkiCapitalAdapter(BaseScraperAdapter):
     # ── Navegação para consulta ───────────────────────────────────────────────
 
     def _navegar_para_consulta(self, page) -> None:
+        # Tenta via menu primeiro (links renderizados pelo JS)
         sel_menu = self._primeiro_seletor(page, [
             "a:has-text('Consulta de Margem')",
             "a:has-text('Margem Consignada')",
@@ -160,15 +164,40 @@ class AkiCapitalAdapter(BaseScraperAdapter):
 
         if sel_menu:
             page.click(sel_menu)
-            page.wait_for_load_state("networkidle", timeout=TIMEOUT_NAV)
+            page.wait_for_load_state("domcontentloaded", timeout=TIMEOUT_NAV)
             pausa_humana(1.0, 2.0)
             return
 
+        # Extrai FISession da URL atual — o WebAutorizador exige esse parâmetro
+        fi_session = ""
+        fi_match = re.search(r"[Ff][Ii][Ss]ession=([^&\s]+)", page.url)
+        if fi_match:
+            fi_session = fi_match.group(1)
+            logger.info("[AkiCapital] FISession capturado: %s…", fi_session[:8])
+
         base = re.sub(r"/Login/.*", "", self.URL_LOGIN.split("?")[0])
-        url_consulta = f"{base}/Consulta/ConsultaMargem.aspx"
-        logger.warning("[AkiCapital] Menu não encontrado — tentando URL: %s", url_consulta)
-        page.goto(url_consulta, wait_until="networkidle", timeout=TIMEOUT_NAV)
-        pausa_humana(1.0, 2.0)
+
+        # Tenta primeiro com FISession (requerido pelo portal), depois sem
+        urls_tentativas: list[str] = []
+        if fi_session:
+            urls_tentativas.append(
+                f"{base}/Consulta/ConsultaMargem.aspx?FISession={fi_session}"
+            )
+        urls_tentativas.append(f"{base}/Consulta/ConsultaMargem.aspx")
+
+        for url_consulta in urls_tentativas:
+            logger.info("[AkiCapital] Tentando página de consulta: %s", url_consulta)
+            try:
+                page.goto(url_consulta, wait_until="domcontentloaded", timeout=TIMEOUT_NAV)
+                pausa_humana(1.0, 2.0)
+                if "login" not in page.url.lower():
+                    logger.info("[AkiCapital] Página de consulta carregada: %s", page.url)
+                    return
+                logger.warning("[AkiCapital] Redirecionado para login após navegar para consulta.")
+            except Exception as exc:
+                logger.warning("[AkiCapital] Falha ao navegar para %s: %s", url_consulta, exc)
+
+        logger.error("[AkiCapital] Não foi possível alcançar a página de consulta de margem.")
 
     # ── Extração ──────────────────────────────────────────────────────────────
 

@@ -28,9 +28,9 @@ logger = logging.getLogger(__name__)
 _SESSION_DIR = Path(settings.SESSION_DIR)
 _SESSION_DIR.mkdir(parents=True, exist_ok=True)
 
-TIMEOUT_NAV  = 30_000
-TIMEOUT_EL   = 20_000
-TIMEOUT_CONS = 45_000
+TIMEOUT_NAV  = 60_000   # 60s — portais lentos precisam de tempo
+TIMEOUT_EL   = 50_000   # 50s
+TIMEOUT_CONS = 120_000  # 120s — aguarda resultado da consulta
 
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -122,6 +122,7 @@ class BaseScraperAdapter(ABC):
     # ── Método público ────────────────────────────────────────────────────────
 
     def consultar(self, cpf: str) -> dict:
+        import time
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
         cpf_limpo = limpar_cpf(cpf)
@@ -130,6 +131,7 @@ class BaseScraperAdapter(ABC):
             logger.warning("[%s] CPF inválido: %s", self.NOME_BANCO, cpf_limpo)
             return resultado_cpf_invalido(cpf_limpo, self.NOME_BANCO)
 
+        t0 = time.time()
         try:
             with sync_playwright() as p:
                 browser, context = self._carregar_contexto(p)
@@ -137,12 +139,14 @@ class BaseScraperAdapter(ABC):
                 page.on("console", lambda _: None)
 
                 try:
+                    t1 = time.time()
                     page.goto(
                         self.URL_LOGIN,
                         wait_until="domcontentloaded",
                         timeout=TIMEOUT_NAV,
                     )
                     pausa_humana(0.5, 1.5)
+                    logger.debug("[%s] Navegação inicial: %.1fs", self.NOME_BANCO, time.time()-t1)
 
                     if not self._esta_logado(page):
                         logger.info(
@@ -150,16 +154,30 @@ class BaseScraperAdapter(ABC):
                             self.NOME_BANCO, cpf_limpo,
                         )
                         self._invalidar_sessao()
+                        t2 = time.time()
                         self._fazer_login(page)
+                        logger.info("[%s] Login concluído em %.1fs", self.NOME_BANCO, time.time()-t2)
                         self._salvar_sessao(context)
+                    else:
+                        logger.info("[%s] Sessão reutilizada para CPF %s", self.NOME_BANCO, cpf_limpo)
 
+                    t3 = time.time()
                     resultado = self._extrair_margem(page, cpf_limpo)
+                    logger.info(
+                        "[%s] CPF %s → %s (extração: %.1fs | total: %.1fs)",
+                        self.NOME_BANCO, cpf_limpo,
+                        resultado.get("status_consulta"), time.time()-t3, time.time()-t0,
+                    )
                     return resultado
 
                 except PWTimeout as exc:
                     salvar_screenshot(page, f"timeout_{self.CHAVE_SESSAO}", _SESSION_DIR)
+                    logger.warning(
+                        "[%s] TIMEOUT após %.1fs consultando CPF %s — URL: %s",
+                        self.NOME_BANCO, time.time()-t0, cpf_limpo, page.url,
+                    )
                     self._invalidar_sessao()
-                    return resultado_erro(f"Timeout: {exc}", cpf_limpo, self.NOME_BANCO)
+                    return resultado_erro(f"Timeout ({time.time()-t0:.0f}s): {exc}", cpf_limpo, self.NOME_BANCO)
 
                 except Exception:
                     salvar_screenshot(page, f"erro_{self.CHAVE_SESSAO}", _SESSION_DIR)
@@ -171,8 +189,8 @@ class BaseScraperAdapter(ABC):
 
         except Exception as exc:
             logger.exception(
-                "[%s] Erro inesperado ao consultar CPF %s: %s",
-                self.NOME_BANCO, cpf_limpo, exc,
+                "[%s] Erro inesperado ao consultar CPF %s após %.1fs: %s",
+                self.NOME_BANCO, cpf_limpo, time.time()-t0, exc,
             )
             return resultado_erro(str(exc), cpf_limpo, self.NOME_BANCO)
 
