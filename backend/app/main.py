@@ -270,16 +270,30 @@ async def upload_lote(
 
     conteudo = await arquivo.read()
     try:
-        df = pd.read_csv(io.BytesIO(conteudo), dtype=str)
+        df = pd.read_csv(
+            io.BytesIO(conteudo),
+            dtype=str,
+            on_bad_lines="skip",   # ignora linhas com colunas a mais/menos
+            engine="python",       # motor mais tolerante a arquivos irregulares
+            encoding_errors="replace",
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Erro ao ler CSV: {e}")
 
     df.columns = [c.strip().lower() for c in df.columns]
+
+    # Aceita coluna chamada 'cpf' ou primeira coluna se não houver cabeçalho padrão
     if "cpf" not in df.columns:
-        raise HTTPException(
-            status_code=400,
-            detail="O CSV deve conter a coluna 'cpf'. Colunas encontradas: " + ", ".join(df.columns),
-        )
+        # Tenta detectar se a primeira coluna contém CPFs (só dígitos, 11 chars)
+        primeira = df.columns[0]
+        amostra = df[primeira].dropna().str.strip().str.replace(r"\D", "", regex=True)
+        if amostra.str.len().between(10, 11).mean() > 0.5:
+            df = df.rename(columns={primeira: "cpf"})
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="O CSV deve conter a coluna 'cpf'. Colunas encontradas: " + ", ".join(df.columns),
+            )
 
     cpfs = df["cpf"].dropna().str.strip().str.replace(r"\D", "", regex=True).tolist()
     cpfs = [c for c in cpfs if c]
