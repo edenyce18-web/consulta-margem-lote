@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.database import get_db, create_tables
+from app.database import get_db, create_tables, ensure_indexes
 from app import crud, models, schemas
 from app.auth import (
     hash_senha, verificar_senha,
@@ -61,6 +61,7 @@ def on_startup():
     try:
         logger.info("Verificando schema do banco de dados...")
         create_tables()
+        ensure_indexes()
 
         inspector = sa_inspect(engine)
         tabelas_existentes = set(inspector.get_table_names())

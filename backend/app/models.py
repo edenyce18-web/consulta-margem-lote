@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import (
     Column, String, DateTime, ForeignKey,
     Numeric, Integer, BigInteger, Text, Boolean,
-    Enum as SAEnum, JSON,
+    Enum as SAEnum, JSON, Index,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -130,10 +130,15 @@ class Consulta(Base):
     status_consulta = Column(SAEnum(StatusConsulta), default=StatusConsulta.aguardando, nullable=False)
     mensagem_erro   = Column(Text, nullable=True)
     dados_brutos    = Column(Text, nullable=True)
-    consultado_em   = Column(DateTime, nullable=True)
+    consultado_em   = Column(DateTime, nullable=True, index=True)
     criado_em       = Column(DateTime, default=datetime.utcnow)
 
     lote = relationship("Lote", back_populates="consultas")
+
+    # T4: índice composto para busca eficiente por (lote, cpf) — padrão mais frequente
+    __table_args__ = (
+        Index("ix_consultas_lote_cpf", "lote_id", "cpf"),
+    )
 
 
 # ── Refresh Tokens ─────────────────────────────────────────────────────────────
