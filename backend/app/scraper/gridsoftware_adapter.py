@@ -165,9 +165,19 @@ class GridSoftwareAdapter(BaseScraperAdapter):
             logger.warning("[GridSoftware] Botão 'Consignatária' não encontrado.")
 
     def _resolver_captcha_se_presente(self, page) -> None:
-        solver = TwoCaptchaSolver()
+        try:
+            solver = TwoCaptchaSolver()
+        except RuntimeError:
+            logger.warning(
+                "[GridSoftware] TWOCAPTCHA_API_KEY não configurada — "
+                "prosseguindo sem resolver CAPTCHA. "
+                "Defina TWOCAPTCHA_API_KEY no .env para portais com reCAPTCHA."
+            )
+            return
+
         sitekey = solver.extrair_sitekey(page)
         if not sitekey:
+            logger.debug("[GridSoftware] Nenhum reCAPTCHA detectado na página de login.")
             return
         logger.info("[GridSoftware] reCAPTCHA detectado. Resolvendo via 2Captcha...")
         token = solver.resolver(sitekey=sitekey, page_url=page.url)

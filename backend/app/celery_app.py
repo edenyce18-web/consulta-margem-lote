@@ -17,7 +17,11 @@ celery_app.conf.update(
     task_track_started=True,
     task_acks_late=True,                   # Só confirma após conclusão
     worker_prefetch_multiplier=1,          # Um task por worker por vez
-    task_soft_time_limit=300,              # 5 min por CPF antes de SoftTimeLimitExceeded
-    task_time_limit=360,
+    # Sem time limit global — processar_lote pode ter milhares de CPFs.
+    # O timeout por CPF é controlado pelos timeouts do Playwright (base_adapter.py).
+    # task_soft_time_limit e task_time_limit são definidos por tarefa se necessário.
     result_expires=86400,                  # Resultados no Redis por 24h
+    task_routes={
+        "app.tasks.processar_lote": {"queue": "celery"},
+    },
 )
