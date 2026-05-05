@@ -88,6 +88,13 @@ GRID_URL=https://consignado.gridsoftware.com.br/grid/login.seam?
 GRID_LOGIN=
 GRID_SENHA=
 
+# ── Prefeitura Boa Vista / RF1
+BOAVISTA_URL=https://boavista.rf1consig.com.br/SGConsignataria/ConsigAcessoUsuarioLogar.aspx
+BOAVISTA_LOGIN=
+BOAVISTA_SENHA=
+BOAVISTA_ORGAO=
+BOAVISTA_CODIGO_SEGURANCA=
+
 # ── 2Captcha ──────────────────────────────────────────────────────────────────
 TWOCAPTCHA_API_KEY=7e42177042c9c211507f578edf43c6fb
 TWOCAPTCHA_TIMEOUT_S=120
