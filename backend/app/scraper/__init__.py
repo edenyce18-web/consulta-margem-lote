@@ -10,6 +10,7 @@ from app.scraper.manager import AdapterManager  # noqa: F401
 from app.scraper.exemplo_adapter import PortalExemploAdapter        # noqa: F401
 from app.scraper.akicapital_adapter import AkiCapitalAdapter        # noqa: F401
 from app.scraper.gridsoftware_adapter import GridSoftwareAdapter    # noqa: F401
+from app.scraper.boavista_adapter import BoaVistaPrefeituraAdapter  # noqa: F401
 
 
 def consultar_margem(
@@ -25,6 +26,7 @@ def consultar_margem(
         banco:      Chave do adaptador (exemplo | aki | grid).
         credencial: Dict com chaves 'login', 'senha', 'url', 'id' (opcional).
                     Se None, usa configurações padrão do .env.
+                    Adaptadores: exemplo | aki | grid | boavista.
     """
     return AdapterManager.consultar(cpf=cpf, banco=banco, credencial=credencial)
 

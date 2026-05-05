@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     GRID_LOGIN: str = ""
     GRID_SENHA: str = ""
 
+
+    # ── Prefeitura Boa Vista / RF1 ─────────────────────────────────────────────
+    BOAVISTA_URL: str = "https://boavista.rf1consig.com.br/SGConsignataria/ConsigAcessoUsuarioLogar.aspx"
+    BOAVISTA_LOGIN: str = ""
+    BOAVISTA_SENHA: str = ""
+    BOAVISTA_ORGAO: str = ""
+    BOAVISTA_CODIGO_SEGURANCA: str = ""
+
     # ── 2Captcha ──────────────────────────────────────────────────────────────
     TWOCAPTCHA_API_KEY: str = ""
     TWOCAPTCHA_TIMEOUT_S: int = 120

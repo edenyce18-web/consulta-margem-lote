@@ -81,8 +81,32 @@ consulta-margem-lote/
 | `exemplo`  | Simulador (sem portal real) | Não       | Ativo     |
 | `aki`      | AkiCapital                  | Não       | Ativo     |
 | `grid`     | GridSoftware / Roraima      | Sim       | Ativo     |
+| `boavista` | Prefeitura Boa Vista / RF1  | Depende   | Base      |
 
 ---
+
+
+## Publicação em servidor (acessar via site e não pesar no computador)
+
+Para rodar o robô 100% na nuvem (VPS) e acessar pelo navegador:
+
+1. Contrate uma VPS Linux (mínimo 4 vCPU, 8 GB RAM).
+2. Copie o projeto para `/opt/consulta-margem`.
+3. Rode o setup automático:
+
+```bash
+sudo bash setup-vps.sh
+```
+
+4. Configure no `backend/.env` as variáveis do RF1 (`BOAVISTA_*`).
+5. Reinicie os serviços:
+
+```bash
+docker compose up -d --build
+```
+
+Com isso, o processamento de lote ocorre no servidor (`worker` Celery) e seu computador fica leve, usando só o navegador para operar o sistema.
+
 
 ## Instalação e Execução
 
@@ -113,7 +137,7 @@ docker compose up --build
 
 ```bash
 curl http://localhost:8000/adaptadores/
-# {"adaptadores": ["aki", "exemplo", "grid"]}
+# {"adaptadores": ["aki", "boavista", "exemplo", "grid"]}
 ```
 
 ### Upload de lote
@@ -130,6 +154,10 @@ curl -X POST "http://localhost:8000/upload-lote/?banco=aki" \
 # GridSoftware / Roraima
 curl -X POST "http://localhost:8000/upload-lote/?banco=grid" \
   -F "arquivo=@cpfs.csv"
+
+# Prefeitura Boa Vista / RF1 (consulta por CPF + órgão)
+curl -X POST "http://localhost:8000/upload-lote/?banco=boavista" \
+  -F "arquivo=@cpfs.csv"
 ```
 
 Resposta:
@@ -140,6 +168,22 @@ Resposta:
   "total_cpfs": 100
 }
 ```
+
+
+
+### Configuração do RF1 (Boa Vista)
+
+Defina no `backend/.env`:
+
+```env
+BOAVISTA_URL=https://boavista.rf1consig.com.br/SGConsignataria/ConsigAcessoUsuarioLogar.aspx
+BOAVISTA_LOGIN=seu_cpf_login
+BOAVISTA_SENHA=sua_senha
+BOAVISTA_ORGAO=PREFEITURA MUNICIPAL DE BOA VISTA
+BOAVISTA_CODIGO_SEGURANCA=
+```
+
+> Observação: o campo de código de segurança (captcha textual da tela) pode exigir atualização manual por execução.
 
 ### Verificar status (polling)
 
