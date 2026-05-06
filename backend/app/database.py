@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from app.config import settings
@@ -19,7 +19,7 @@ def create_engine_with_retry(database_url: str, max_retries: int = 10, retry_del
             )
             # Testa a conexão
             with engine.connect() as conn:
-                conn.execute("SELECT 1")
+                conn.execute(text("SELECT 1"))
             logger.info("Conexão com banco de dados estabelecida com sucesso.")
             return engine
         except Exception as e:
