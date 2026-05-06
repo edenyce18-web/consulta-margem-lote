@@ -41,10 +41,38 @@ if errorlevel 1 (
 
 echo [OK] Docker esta rodando!
 echo.
-echo [1/3] Entrando na pasta do projeto...
+echo [1/4] Entrando na pasta do projeto...
 cd /d "%~dp0"
 
-echo [2/3] Construindo e subindo os containers...
+:: Verifica se .env existe
+if not exist "backend\.env" (
+    echo.
+    echo [AVISO] Arquivo backend\.env nao encontrado!
+    echo Copiando .env.example para .env...
+    copy "backend\.env.example" "backend\.env" >nul
+    echo.
+    echo ╔══════════════════════════════════════════════════════════════╗
+    echo ║  CONFIGURACAO NECESSARIA — Edite o arquivo backend\.env     ║
+    echo ╠══════════════════════════════════════════════════════════════╣
+    echo ║                                                              ║
+    echo ║  SECRET_KEY: gere com:                                       ║
+    echo ║    python -c "import secrets; print(secrets.token_hex(32))" ║
+    echo ║                                                              ║
+    echo ║  ENCRYPTION_KEY: gere com:                                   ║
+    echo ║    python -c "import os,base64;                              ║
+    echo ║      print(base64.b64encode(os.urandom(32)).decode())"      ║
+    echo ║                                                              ║
+    echo ║  AKICAPITAL_LOGIN, AKICAPITAL_SENHA: credenciais AkiCapital ║
+    echo ║  GRID_LOGIN, GRID_SENHA: credenciais GridSoftware/Roraima   ║
+    echo ║                                                              ║
+    echo ╚══════════════════════════════════════════════════════════════╝
+    echo.
+    notepad "backend\.env"
+    echo Pressione qualquer tecla apos configurar o .env...
+    pause >nul
+)
+
+echo [2/4] Construindo e subindo os containers...
 echo       ^(primeira vez pode demorar 5-10 minutos^)
 echo.
 docker compose up --build -d
@@ -58,8 +86,14 @@ if errorlevel 1 (
 )
 
 echo.
-echo [3/3] Aguardando servicos ficarem prontos...
-timeout /t 10 /nobreak >nul
+echo [3/4] Aguardando banco de dados ficar pronto...
+timeout /t 15 /nobreak >nul
+
+echo [4/4] Inicializando banco de dados...
+docker exec margem_backend python init_db.py
+if errorlevel 1 (
+    echo [AVISO] init_db retornou erro - o banco pode ja estar inicializado.
+)
 
 :: Abre o navegador automaticamente
 echo.
@@ -70,8 +104,13 @@ echo ║                                                  ║
 echo ║  Interface Web:   http://localhost               ║
 echo ║  API Swagger:     http://localhost:8000/docs     ║
 echo ║  Monitor Celery:  http://localhost:5555          ║
+echo ║  Saude do BD:     http://localhost:8000/health/db║
 echo ║                                                  ║
-echo ║  Abrindo navegador...                            ║
+echo ║  Para criar usuario admin:                       ║
+echo ║  docker exec -it margem_backend python           ║
+echo ║    init_db.py --admin-email x@y.com              ║
+echo ║               --admin-senha SuaSenha123          ║
+echo ║                                                  ║
 echo ╚══════════════════════════════════════════════════╝
 echo.
 

@@ -56,8 +56,21 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup():
+    import time as _time
     from sqlalchemy import inspect as sa_inspect
     from app.database import engine
+
+    # Avisa sobre configurações padrão inseguras
+    if "TROQUE" in settings.SECRET_KEY or len(settings.SECRET_KEY) < 32:
+        logger.warning(
+            "SECRET_KEY parece ser o valor padrão. "
+            "Gere uma chave segura: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+    if "TROQUE" in settings.ENCRYPTION_KEY:
+        logger.warning(
+            "ENCRYPTION_KEY parece ser o valor padrão. "
+            "Gere com: python -c \"import os, base64; print(base64.b64encode(os.urandom(32)).decode())\""
+        )
 
     try:
         logger.info("Verificando schema do banco de dados...")
@@ -65,19 +78,38 @@ def on_startup():
         migrate_saas_columns()
         ensure_indexes()
 
-        inspector = sa_inspect(engine)
-        tabelas_existentes = set(inspector.get_table_names())
-        tabelas_necessarias = {
-            "usuarios", "lotes", "consultas",
-            "refresh_tokens", "login_attempts", "audit_logs", "credenciais",
-        }
-        faltando = tabelas_necessarias - tabelas_existentes
-        if faltando:
-            logger.warning("Tabelas faltando (execute alembic upgrade head): %s", faltando)
-        else:
-            logger.info("Todas as tabelas verificadas com sucesso.")
-    except Exception as e:
-        logger.error("Erro ao verificar schema: %s — a aplicação pode funcionar de forma degradada.", e)
+    max_tentativas = 10
+    for tentativa in range(1, max_tentativas + 1):
+        try:
+            logger.info("Verificando schema do banco de dados... (tentativa %d/%d)", tentativa, max_tentativas)
+            create_tables()
+            ensure_indexes()
+
+            inspector = sa_inspect(engine)
+            tabelas_existentes = set(inspector.get_table_names())
+            tabelas_necessarias = {
+                "usuarios", "lotes", "consultas",
+                "refresh_tokens", "login_attempts", "audit_logs", "credenciais",
+            }
+            faltando = tabelas_necessarias - tabelas_existentes
+            if faltando:
+                logger.warning("Tabelas faltando (execute alembic upgrade head): %s", faltando)
+            else:
+                logger.info("Todas as tabelas verificadas com sucesso.")
+            return
+        except Exception as e:
+            if tentativa < max_tentativas:
+                logger.warning(
+                    "Banco não disponível (tentativa %d/%d): %s. Aguardando 3s...",
+                    tentativa, max_tentativas, e,
+                )
+                _time.sleep(3)
+            else:
+                logger.error(
+                    "Não foi possível conectar ao banco após %d tentativas. "
+                    "Verifique DATABASE_URL e se o PostgreSQL está rodando.",
+                    max_tentativas,
+                )
 
 
 # ── Dependencies ─────────────────────────────────────────────────────────────
@@ -108,37 +140,60 @@ def registrar(payload: schemas.UsuarioCreate, db: Session = Depends(get_db)):
 @app.post("/auth/login", response_model=schemas.Token, tags=["Auth"])
 def login(payload: schemas.LoginRequest, request: Request, db: Session = Depends(get_db)):
     ip = get_ip(request)
+    logger.info("Tentativa de login: email=%s ip=%s", payload.email, ip)
 
-    # Rate limiting
-    verificar_rate_limit(db, payload.email, ip)
+    try:
+        # Rate limiting
+        verificar_rate_limit(db, payload.email, ip)
 
-    usuario = db.query(models.Usuario).filter(models.Usuario.email == payload.email).first()
-    sucesso = bool(usuario and verificar_senha(payload.senha, usuario.senha_hash))
+        usuario = db.query(models.Usuario).filter(models.Usuario.email == payload.email).first()
+        sucesso = bool(usuario and verificar_senha(payload.senha, usuario.senha_hash))
 
-    crud.registrar_tentativa_login(
-        db,
-        email=payload.email,
-        ip_address=ip,
-        sucesso=sucesso,
-        usuario_id=usuario.id if usuario else None,
-    )
+        crud.registrar_tentativa_login(
+            db,
+            email=payload.email,
+            ip_address=ip,
+            sucesso=sucesso,
+            usuario_id=usuario.id if usuario else None,
+        )
 
-    if not sucesso:
-        raise HTTPException(status_code=401, detail="Credenciais inválidas.")
+        if not sucesso:
+            logger.warning("Login falhou (credenciais inválidas): email=%s", payload.email)
+            raise HTTPException(status_code=401, detail="Credenciais inválidas.")
 
-    if not usuario.ativo:
-        raise HTTPException(status_code=403, detail="Conta desativada.")
+        if not usuario.ativo:
+            logger.warning("Login bloqueado (conta inativa): email=%s", payload.email)
+            raise HTTPException(status_code=403, detail="Conta desativada.")
 
-    access_token = criar_access_token({"sub": usuario.email})
-    refresh_token = criar_refresh_token_db(db, usuario.id)
+        access_token = criar_access_token({"sub": usuario.email})
+        refresh_token = criar_refresh_token_db(db, usuario.id)
 
-    crud.registrar_auditoria(
-        db, usuario.id, "login",
-        ip_address=ip,
-        user_agent=request.headers.get("user-agent"),
-    )
+        crud.registrar_auditoria(
+            db, usuario.id, "login",
+            ip_address=ip,
+            user_agent=request.headers.get("user-agent"),
+        )
 
-    return {"access_token": access_token, "refresh_token": refresh_token}
+        logger.info("Login bem-sucedido: email=%s id=%s", usuario.email, usuario.id)
+        return {"access_token": access_token, "refresh_token": refresh_token}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(
+            "Erro interno no login para '%s': %s\n"
+            "Verifique: 1) Banco inicializado (python init_db.py) "
+            "2) SECRET_KEY configurada no .env "
+            "3) ENCRYPTION_KEY com 32 bytes válidos",
+            payload.email, exc,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Erro interno no servidor. Verifique os logs do backend. "
+                "Causas comuns: banco não inicializado, SECRET_KEY ou ENCRYPTION_KEY inválidos."
+            ),
+        )
 
 
 @app.post("/auth/refresh", response_model=schemas.Token, tags=["Auth"])
@@ -663,3 +718,43 @@ def listar_portais():
 @app.get("/health", tags=["Sistema"])
 def health():
     return {"status": "ok", "versao": "2.0.0"}
+
+
+@app.get("/health/db", tags=["Sistema"])
+def health_db(db: Session = Depends(get_db)):
+    """Diagnóstico: testa conectividade com o banco de dados."""
+    try:
+        from sqlalchemy import text, inspect
+        db.execute(text("SELECT 1"))
+        tabelas = [
+            "usuarios", "credenciais", "lotes",
+            "consultas", "refresh_tokens", "login_attempts", "audit_logs",
+        ]
+        existentes = []
+        faltando = []
+        insp = inspect(db.bind)
+        for tabela in tabelas:
+            if insp.has_table(tabela):
+                existentes.append(tabela)
+            else:
+                faltando.append(tabela)
+
+        ok = len(faltando) == 0
+        return {
+            "status": "ok" if ok else "degradado",
+            "banco": "conectado",
+            "tabelas_existentes": existentes,
+            "tabelas_faltando": faltando,
+            "acao": (
+                None if ok
+                else "Execute: docker exec -it margem_backend python init_db.py"
+            ),
+        }
+    except Exception as exc:
+        logger.exception("Falha no health check do banco: %s", exc)
+        return {
+            "status": "erro",
+            "banco": "desconectado",
+            "detalhe": str(exc),
+            "acao": "Verifique DATABASE_URL no .env e se o PostgreSQL está rodando.",
+        }
