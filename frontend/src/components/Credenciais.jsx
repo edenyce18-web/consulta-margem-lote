@@ -5,6 +5,7 @@ import { getCredenciais, criarCredencial, deletarCredencial } from "../api";
 const TIPOS = [
   { value: "aki",     label: "AkiCapital (SIAPE / Federal)" },
   { value: "grid",    label: "GridSoftware / Roraima (GOV RR)" },
+  { value: "bv",      label: "RF1Consig / Boa Vista (Prefeitura BV)" },
   { value: "exemplo", label: "Portal Exemplo (Testes)" },
 ];
 

@@ -94,7 +94,7 @@ export default function App() {
 
         {abaAtiva === "perfil" && <Perfil />}
 
-        {abaAtiva === "admin" && usuario?.plano === "admin" && <Admin />}
+        {abaAtiva === "admin" && usuario?.is_admin === true && <Admin />}
       </main>
     </div>
   );
