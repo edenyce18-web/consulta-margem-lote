@@ -53,15 +53,12 @@ def create_tables():
 
 def migrate_saas_columns():
     """
-    Adiciona colunas SaaS ao modelo Usuario caso ainda não existam.
+    Adiciona coluna is_admin ao modelo Usuario caso ainda não exista.
     Seguro para rodar a cada startup.
     """
     from sqlalchemy import text
     stmts = [
-        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS plano VARCHAR(20) NOT NULL DEFAULT 'basico'",
-        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS cpfs_mes_limite INTEGER NOT NULL DEFAULT 500",
-        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS cpfs_mes_usado INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS plano_ativo BOOLEAN NOT NULL DEFAULT true",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false",
     ]
     with engine.connect() as conn:
         for stmt in stmts:

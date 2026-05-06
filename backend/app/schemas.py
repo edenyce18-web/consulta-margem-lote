@@ -18,19 +18,11 @@ class UsuarioResponse(BaseModel):
     nome: str
     email: str
     criado_em: datetime
-    plano: str = "basico"
-    cpfs_mes_limite: int = 500
-    cpfs_mes_usado: int = 0
-    plano_ativo: bool = True
     ativo: bool = True
+    is_admin: bool = False
 
     class Config:
         from_attributes = True
-
-
-class AtualizarPlanoRequest(BaseModel):
-    plano: Optional[str] = None          # basico | pro | enterprise | admin
-    cpfs_mes_limite: Optional[int] = None
 
 
 class AdminUsuarioResponse(BaseModel):
@@ -39,10 +31,7 @@ class AdminUsuarioResponse(BaseModel):
     email: str
     criado_em: datetime
     ativo: bool
-    plano: str = "basico"
-    cpfs_mes_limite: int = 500
-    cpfs_mes_usado: int = 0
-    plano_ativo: bool = True
+    is_admin: bool = False
     total_lotes: int = 0
     total_cpfs: int = 0
 
@@ -54,7 +43,6 @@ class AdminStatsResponse(BaseModel):
     total_usuarios: int
     total_cpfs_processados: int
     total_lotes: int
-    cpfs_este_mes: int
     usuarios_ativos: int
 
 

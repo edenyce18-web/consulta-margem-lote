@@ -83,7 +83,7 @@ def on_startup():
 # ── Dependencies ─────────────────────────────────────────────────────────────
 
 def exigir_admin(usuario: models.Usuario = Depends(exigir_autenticacao)) -> models.Usuario:
-    if usuario.plano != "admin":
+    if not usuario.is_admin:
         raise HTTPException(status_code=403, detail="Acesso restrito a administradores.")
     return usuario
 
@@ -337,19 +337,6 @@ async def upload_lote(
     if len(cpfs) > 5000:
         raise HTTPException(status_code=400, detail="Limite de 5.000 CPFs por lote.")
 
-    # ── Controle de cota mensal ───────────────────────────────────────────────
-    if usuario.cpfs_mes_limite != -1:
-        if usuario.cpfs_mes_usado + len(cpfs) > usuario.cpfs_mes_limite:
-            restante = max(0, usuario.cpfs_mes_limite - usuario.cpfs_mes_usado)
-            raise HTTPException(
-                status_code=429,
-                detail=(
-                    f"Cota mensal excedida. Você usou {usuario.cpfs_mes_usado} de "
-                    f"{usuario.cpfs_mes_limite} CPFs este mês. "
-                    f"Restam {restante} CPFs disponíveis."
-                ),
-            )
-
     lote = crud.criar_lote(
         db,
         arquivo.filename,
@@ -359,10 +346,6 @@ async def upload_lote(
         credencial_id=credencial_id,
     )
     crud.criar_consultas_em_lote(db, lote.id, cpfs)
-
-    # Incrementa cota usada no mês
-    usuario.cpfs_mes_usado += len(cpfs)
-    db.commit()
 
     processar_lote.delay(
         str(lote.id),
@@ -603,40 +586,12 @@ def admin_listar_usuarios(
                 email=u.email,
                 criado_em=u.criado_em,
                 ativo=u.ativo,
-                plano=u.plano or "basico",
-                cpfs_mes_limite=u.cpfs_mes_limite if u.cpfs_mes_limite is not None else 500,
-                cpfs_mes_usado=u.cpfs_mes_usado or 0,
-                plano_ativo=u.plano_ativo if u.plano_ativo is not None else True,
+                is_admin=u.is_admin or False,
                 total_lotes=stats.total_lotes or 0,
                 total_cpfs=stats.total_cpfs or 0,
             )
         )
     return resultado
-
-
-@app.put("/admin/usuarios/{usuario_id}/plano", response_model=schemas.UsuarioResponse, tags=["Admin"])
-def admin_atualizar_plano(
-    usuario_id: uuid.UUID,
-    payload: schemas.AtualizarPlanoRequest,
-    db: Session = Depends(get_db),
-    _admin: models.Usuario = Depends(exigir_admin),
-):
-    u = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
-    if not u:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado.")
-
-    planos_validos = {"basico", "pro", "enterprise", "admin"}
-    if payload.plano is not None:
-        if payload.plano not in planos_validos:
-            raise HTTPException(status_code=400, detail=f"Plano inválido. Válidos: {', '.join(planos_validos)}")
-        u.plano = payload.plano
-
-    if payload.cpfs_mes_limite is not None:
-        u.cpfs_mes_limite = payload.cpfs_mes_limite
-
-    db.commit()
-    db.refresh(u)
-    return u
 
 
 @app.put("/admin/usuarios/{usuario_id}/toggle", response_model=schemas.UsuarioResponse, tags=["Admin"])
@@ -682,7 +637,6 @@ def admin_stats(
         total_usuarios=total_usuarios,
         total_cpfs_processados=total_cpfs_processados,
         total_lotes=total_lotes,
-        cpfs_este_mes=cpfs_este_mes,
         usuarios_ativos=usuarios_ativos,
     )
 

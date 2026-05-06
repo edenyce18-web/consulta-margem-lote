@@ -16,45 +16,10 @@ const MENU_BASE = [
 
 const MENU_ADMIN = { id: "admin", label: "Admin", icon: Shield };
 
-function CotaBar({ usuario, collapsed }) {
-  if (!usuario) return null;
-
-  const plano = usuario.plano || "basico";
-  const ilimitado = usuario.cpfs_mes_limite === -1 || plano === "enterprise" || plano === "admin";
-  const usado = usuario.cpfs_mes_usado || 0;
-  const limite = usuario.cpfs_mes_limite || 500;
-  const pct = ilimitado ? 0 : Math.min(100, Math.round((usado / limite) * 100));
-  const cor = pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-yellow-400" : "bg-blue-400";
-
-  if (collapsed) return null;
-
-  return (
-    <div className="px-3 py-2 border-t border-slate-700">
-      <p className="text-xs text-slate-400 mb-1 font-medium">CPFs este mês</p>
-      {ilimitado ? (
-        <p className="text-xs text-green-400 font-semibold">Ilimitado</p>
-      ) : (
-        <>
-          <div className="flex justify-between text-xs text-slate-400 mb-1">
-            <span>{usado.toLocaleString()}/{limite.toLocaleString()}</span>
-            <span>{pct}%</span>
-          </div>
-          <div className="w-full bg-slate-700 rounded-full h-1.5">
-            <div
-              className={`${cor} h-1.5 rounded-full transition-all duration-300`}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
 export default function Sidebar({ abaAtiva, onChangeAba, usuario, onLogout }) {
   const [collapsed, setCollapsed] = useState(false);
 
-  const isAdmin = usuario?.plano === "admin";
+  const isAdmin = usuario?.is_admin === true;
   const menu = isAdmin ? [...MENU_BASE, MENU_ADMIN] : MENU_BASE;
 
   return (
@@ -124,9 +89,6 @@ export default function Sidebar({ abaAtiva, onChangeAba, usuario, onLogout }) {
           );
         })}
       </nav>
-
-      {/* Cota bar */}
-      <CotaBar usuario={usuario} collapsed={collapsed} />
 
       {/* User area */}
       <div className="border-t border-slate-700 p-3 space-y-2">
