@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     GRID_LOGIN: str = ""
     GRID_SENHA: str = ""
 
+    # ── RF1Consig / Boa Vista ─────────────────────────────────────────────────
+    RF1BV_URL: str = (
+        "https://boavista.rf1consig.com.br/SGConsignataria/"
+        "ConsigAcessoUsuarioLogar.aspx"
+    )
+
     # ── 2Captcha ──────────────────────────────────────────────────────────────
     TWOCAPTCHA_API_KEY: str = ""
     TWOCAPTCHA_TIMEOUT_S: int = 120

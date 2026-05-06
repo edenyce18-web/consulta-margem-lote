@@ -10,6 +10,7 @@ from app.scraper.manager import AdapterManager  # noqa: F401
 from app.scraper.exemplo_adapter import PortalExemploAdapter        # noqa: F401
 from app.scraper.akicapital_adapter import AkiCapitalAdapter        # noqa: F401
 from app.scraper.gridsoftware_adapter import GridSoftwareAdapter    # noqa: F401
+from app.scraper.rf1consig_adapter import RF1ConsigBoaVistaAdapter  # noqa: F401
 
 
 def consultar_margem(

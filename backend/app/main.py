@@ -545,6 +545,18 @@ _BANCOS_CATALOGO = [
         "taxa_media": "2,05% a.m.",
     },
     {
+        "id": "bv",
+        "nome": "RF1Consig / Boa Vista",
+        "descricao": (
+            "Portal consignatário da Prefeitura de Boa Vista (RF1Consig). "
+            "Consulta margem de empréstimo e cartão de servidores municipais. "
+            "Requer CAPTCHA — configure TWOCAPTCHA_API_KEY no .env da VPS."
+        ),
+        "status": "ativo",
+        "margem_maxima": "—",
+        "taxa_media": "—",
+    },
+    {
         "id": "exemplo",
         "nome": "Exemplo (Demo)",
         "descricao": "Adaptador de demonstração com dados simulados para testes.",

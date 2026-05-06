@@ -218,3 +218,126 @@ class TwoCaptchaSolver:
             }})();
         """)
         logger.info("Token reCAPTCHA injetado na página.")
+
+
+class ImageCaptchaSolver:
+    """
+    Resolve CAPTCHA simples de imagem (texto/números) via 2Captcha.
+    Usado em portais ASP.NET como RF1Consig que geram imagem própria.
+
+    Fluxo:
+      1. Baixa a imagem do CAPTCHA usando os cookies da sessão atual
+      2. Envia como base64 para a API do 2Captcha (method=base64)
+      3. Aguarda e retorna o texto resolvido
+    """
+
+    def __init__(self) -> None:
+        self.api_key = settings.TWOCAPTCHA_API_KEY
+        if not self.api_key:
+            raise RuntimeError(
+                "TWOCAPTCHA_API_KEY não configurada. "
+                "Adicione TWOCAPTCHA_API_KEY=sua_chave ao arquivo .env "
+                "para usar portais com CAPTCHA de imagem."
+            )
+
+    def resolver_elemento(self, page, seletor_img: str) -> str:
+        """
+        Captura a imagem do CAPTCHA via URL absoluta com cookies da sessão,
+        envia ao 2Captcha e retorna o texto resolvido.
+
+        Args:
+            page:         Playwright page ativa.
+            seletor_img:  Seletor CSS do elemento <img> do CAPTCHA.
+
+        Returns:
+            Texto do CAPTCHA (ex: "A3K9").
+
+        Raises:
+            RuntimeError: se o elemento não for encontrado ou API falhar.
+        """
+        import base64
+        from urllib.parse import urljoin
+        import httpx as _httpx
+
+        # ── 1. Localiza e baixa a imagem ──────────────────────────────────────
+        img_loc = page.locator(seletor_img)
+        if img_loc.count() == 0:
+            raise RuntimeError(
+                f"Imagem CAPTCHA não encontrada com seletor '{seletor_img}'."
+            )
+
+        img_src = img_loc.first.get_attribute("src") or ""
+        if not img_src:
+            raise RuntimeError("Atributo src da imagem CAPTCHA está vazio.")
+
+        # Resolve URL relativa
+        if not img_src.startswith("http"):
+            img_src = urljoin(page.url, img_src)
+
+        # Adiciona timestamp para forçar novo CAPTCHA a cada tentativa
+        import time as _time
+        img_url = f"{img_src}?ts={int(_time.time())}"
+
+        # Usa cookies da sessão para baixar a imagem
+        cookies_list = page.context.cookies()
+        cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies_list)
+
+        logger.info("[ImageCaptcha] Baixando CAPTCHA de: %s", img_src)
+        with _httpx.Client(timeout=15, follow_redirects=True) as client:
+            resp = client.get(img_url, headers={"Cookie": cookie_str})
+            resp.raise_for_status()
+
+        img_b64 = base64.b64encode(resp.content).decode()
+        logger.info("[ImageCaptcha] Imagem capturada (%d bytes)", len(resp.content))
+
+        # ── 2. Envia ao 2Captcha ──────────────────────────────────────────────
+        with _httpx.Client(timeout=30) as client:
+            resp = client.post(_URL_SUBMIT, data={
+                "key":    self.api_key,
+                "method": "base64",
+                "body":   img_b64,
+                "json":   1,
+            })
+            resp.raise_for_status()
+            dados_submit = resp.json()
+
+        if dados_submit.get("status") != 1:
+            raise RuntimeError(
+                f"2Captcha recusou a imagem: {dados_submit.get('request', dados_submit)}"
+            )
+
+        captcha_id = dados_submit["request"]
+        logger.info("[ImageCaptcha] Tarefa criada no 2Captcha | ID: %s", captcha_id)
+
+        # ── 3. Aguarda solução ────────────────────────────────────────────────
+        _time.sleep(5)
+        deadline = _time.time() + 60
+
+        while _time.time() < deadline:
+            with _httpx.Client(timeout=30) as client:
+                resp = client.get(_URL_RESULT, params={
+                    "key":    self.api_key,
+                    "action": "get",
+                    "id":     captcha_id,
+                    "json":   1,
+                })
+                resp.raise_for_status()
+                dados_result = resp.json()
+
+            request_val = dados_result.get("request", "")
+
+            if dados_result.get("status") == 1:
+                logger.info("[ImageCaptcha] Resolvido: '%s'", request_val)
+                return request_val
+
+            if request_val == "ERROR_CAPTCHA_UNSOLVABLE":
+                raise CaptchaUnsolvableError(
+                    "2Captcha não conseguiu ler o CAPTCHA de imagem."
+                )
+
+            if request_val.startswith("ERROR_"):
+                raise RuntimeError(f"Erro 2Captcha: {request_val}")
+
+            _time.sleep(5)
+
+        raise CaptchaTimeoutError("Timeout: 2Captcha não resolveu a imagem em 60s.")
