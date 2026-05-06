@@ -221,6 +221,7 @@ def processar_lote(
                     continue
 
                 try:
+                    logger.info("🔍 Processando CPF: %s [%d/%d]", cpf, idx, len(cpfs))
                     resultado = bl.consultar(cpf)
                     consecutivos_timeout = 0  # reset após sucesso
 
@@ -232,9 +233,9 @@ def processar_lote(
                     is_timeout = "timeout" in msg.lower() or "Timeout" in msg
                     consecutivos_timeout += 1 if is_timeout else 0
 
-                    logger.warning(
-                        "⚠  CPF %s — %s após %.1fs (consecutivos: %d)",
-                        cpf, "TIMEOUT" if is_timeout else "ERRO",
+                    logger.error(
+                        "❌ ERRO no CPF %s [%d/%d] — %s após %.1fs (consecutivos: %d)",
+                        cpf, idx, len(cpfs), "TIMEOUT" if is_timeout else "ERRO",
                         time.time() - t_cpf, consecutivos_timeout,
                     )
 
@@ -248,6 +249,11 @@ def processar_lote(
                         "nome_titular":      None,
                         "banco":             banco,
                         "orgao":             None,
+                        "tipo_vinculo":      None,
+                        "matricula":         None,
+                        "emprestimo_situacao":       None,
+                        "cartao_credito_situacao":   None,
+                        "cartao_beneficio_situacao": None,
                         "dados_brutos":      None,
                     }
 
@@ -255,7 +261,7 @@ def processar_lote(
                     pausa = _DELAY_POS_TIMEOUT * consecutivos_timeout if is_timeout else _DELAY_POS_ERRO
                     pausa = min(pausa, 30)  # máximo 30s de pausa
                     if pausa > 0:
-                        logger.info("⏳ Aguardando %.0fs antes do próximo CPF...", pausa)
+                        logger.info("⏳ Aguardando %.0fs antes do próximo CPF devido a erro...", pausa)
                         time.sleep(pausa)
 
                 # T6: acumula no buffer em vez de commitar por CPF

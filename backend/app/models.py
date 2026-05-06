@@ -44,8 +44,14 @@ class Usuario(Base):
     nome       = Column(String(150), nullable=False)
     email      = Column(String(200), unique=True, nullable=False, index=True)
     senha_hash = Column(String(255), nullable=False)
-    ativo      = Column(Boolean, default=True)
+    ativo      = Column(Boolean, default=True, server_default="true")
     criado_em  = Column(DateTime, default=datetime.utcnow)
+
+    # SaaS: plano e cotas
+    plano            = Column(String(20), default="basico", server_default="basico")
+    cpfs_mes_limite  = Column(Integer, default=500, server_default="500")
+    cpfs_mes_usado   = Column(Integer, default=0, server_default="0")
+    plano_ativo      = Column(Boolean, default=True, server_default="true")
 
     credenciais    = relationship("Credencial", back_populates="usuario")
     lotes          = relationship("Lote", back_populates="usuario")

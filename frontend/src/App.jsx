@@ -8,6 +8,8 @@ import StatusLote from "./components/StatusLote";
 import HistoricoLotes from "./components/HistoricoLotes";
 import Credenciais from "./components/Credenciais";
 import Catalogo from "./components/Catalogo";
+import Admin from "./components/Admin";
+import Perfil from "./components/Perfil";
 import { logout, getMe } from "./api";
 
 export default function App() {
@@ -89,6 +91,10 @@ export default function App() {
         {abaAtiva === "catalogo" && (
           <Catalogo onAdicionarCredencial={() => setAbaAtiva("credenciais")} />
         )}
+
+        {abaAtiva === "perfil" && <Perfil />}
+
+        {abaAtiva === "admin" && usuario?.plano === "admin" && <Admin />}
       </main>
     </div>
   );

@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.database import get_db, create_tables, ensure_indexes
+from app.database import get_db, create_tables, ensure_indexes, migrate_saas_columns
 from app import crud, models, schemas
 from app.auth import (
     hash_senha, verificar_senha,
@@ -25,6 +25,7 @@ from app.auth import (
     get_usuario_atual, exigir_autenticacao,
     verificar_rate_limit, get_ip,
 )
+from sqlalchemy import func as sa_func
 from app.crypto import encrypt, decrypt
 from app.config import settings
 from app.tasks import processar_lote
@@ -61,6 +62,7 @@ def on_startup():
     try:
         logger.info("Verificando schema do banco de dados...")
         create_tables()
+        migrate_saas_columns()
         ensure_indexes()
 
         inspector = sa_inspect(engine)
@@ -76,6 +78,14 @@ def on_startup():
             logger.info("Todas as tabelas verificadas com sucesso.")
     except Exception as e:
         logger.error("Erro ao verificar schema: %s — a aplicação pode funcionar de forma degradada.", e)
+
+
+# ── Dependencies ─────────────────────────────────────────────────────────────
+
+def exigir_admin(usuario: models.Usuario = Depends(exigir_autenticacao)) -> models.Usuario:
+    if usuario.plano != "admin":
+        raise HTTPException(status_code=403, detail="Acesso restrito a administradores.")
+    return usuario
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -327,6 +337,19 @@ async def upload_lote(
     if len(cpfs) > 5000:
         raise HTTPException(status_code=400, detail="Limite de 5.000 CPFs por lote.")
 
+    # ── Controle de cota mensal ───────────────────────────────────────────────
+    if usuario.cpfs_mes_limite != -1:
+        if usuario.cpfs_mes_usado + len(cpfs) > usuario.cpfs_mes_limite:
+            restante = max(0, usuario.cpfs_mes_limite - usuario.cpfs_mes_usado)
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"Cota mensal excedida. Você usou {usuario.cpfs_mes_usado} de "
+                    f"{usuario.cpfs_mes_limite} CPFs este mês. "
+                    f"Restam {restante} CPFs disponíveis."
+                ),
+            )
+
     lote = crud.criar_lote(
         db,
         arquivo.filename,
@@ -336,6 +359,10 @@ async def upload_lote(
         credencial_id=credencial_id,
     )
     crud.criar_consultas_em_lote(db, lote.id, cpfs)
+
+    # Incrementa cota usada no mês
+    usuario.cpfs_mes_usado += len(cpfs)
+    db.commit()
 
     processar_lote.delay(
         str(lote.id),
@@ -548,6 +575,116 @@ _BANCOS_CATALOGO = [
 @app.get("/catalogo/bancos", tags=["Catálogo"])
 def catalogo_bancos():
     return _BANCOS_CATALOGO
+
+
+# ── Admin ─────────────────────────────────────────────────────────────────────
+
+@app.get("/admin/usuarios/", response_model=List[schemas.AdminUsuarioResponse], tags=["Admin"])
+def admin_listar_usuarios(
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(exigir_admin),
+):
+    usuarios = db.query(models.Usuario).order_by(models.Usuario.criado_em.desc()).all()
+    resultado = []
+    for u in usuarios:
+        # Contagens por usuário
+        stats = (
+            db.query(
+                sa_func.count(models.Lote.id).label("total_lotes"),
+                sa_func.coalesce(sa_func.sum(models.Lote.total_cpfs), 0).label("total_cpfs"),
+            )
+            .filter(models.Lote.usuario_id == u.id)
+            .first()
+        )
+        resultado.append(
+            schemas.AdminUsuarioResponse(
+                id=u.id,
+                nome=u.nome,
+                email=u.email,
+                criado_em=u.criado_em,
+                ativo=u.ativo,
+                plano=u.plano or "basico",
+                cpfs_mes_limite=u.cpfs_mes_limite if u.cpfs_mes_limite is not None else 500,
+                cpfs_mes_usado=u.cpfs_mes_usado or 0,
+                plano_ativo=u.plano_ativo if u.plano_ativo is not None else True,
+                total_lotes=stats.total_lotes or 0,
+                total_cpfs=stats.total_cpfs or 0,
+            )
+        )
+    return resultado
+
+
+@app.put("/admin/usuarios/{usuario_id}/plano", response_model=schemas.UsuarioResponse, tags=["Admin"])
+def admin_atualizar_plano(
+    usuario_id: uuid.UUID,
+    payload: schemas.AtualizarPlanoRequest,
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(exigir_admin),
+):
+    u = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not u:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+
+    planos_validos = {"basico", "pro", "enterprise", "admin"}
+    if payload.plano is not None:
+        if payload.plano not in planos_validos:
+            raise HTTPException(status_code=400, detail=f"Plano inválido. Válidos: {', '.join(planos_validos)}")
+        u.plano = payload.plano
+
+    if payload.cpfs_mes_limite is not None:
+        u.cpfs_mes_limite = payload.cpfs_mes_limite
+
+    db.commit()
+    db.refresh(u)
+    return u
+
+
+@app.put("/admin/usuarios/{usuario_id}/toggle", response_model=schemas.UsuarioResponse, tags=["Admin"])
+def admin_toggle_usuario(
+    usuario_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(exigir_admin),
+):
+    u = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not u:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+    u.ativo = not u.ativo
+    db.commit()
+    db.refresh(u)
+    return u
+
+
+@app.get("/admin/stats/", response_model=schemas.AdminStatsResponse, tags=["Admin"])
+def admin_stats(
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(exigir_admin),
+):
+    from datetime import datetime
+    inicio_mes = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    total_usuarios = db.query(sa_func.count(models.Usuario.id)).scalar() or 0
+    usuarios_ativos = (
+        db.query(sa_func.count(models.Usuario.id))
+        .filter(models.Usuario.ativo == True)   # noqa: E712
+        .scalar() or 0
+    )
+    total_lotes = db.query(sa_func.count(models.Lote.id)).scalar() or 0
+    total_cpfs_processados = (
+        db.query(sa_func.coalesce(sa_func.sum(models.Lote.total_cpfs), 0)).scalar() or 0
+    )
+    cpfs_este_mes = (
+        db.query(sa_func.coalesce(sa_func.sum(models.Lote.total_cpfs), 0))
+        .filter(models.Lote.criado_em >= inicio_mes)
+        .scalar() or 0
+    )
+
+    return schemas.AdminStatsResponse(
+        total_usuarios=total_usuarios,
+        total_cpfs_processados=total_cpfs_processados,
+        total_lotes=total_lotes,
+        cpfs_este_mes=cpfs_este_mes,
+        usuarios_ativos=usuarios_ativos,
+    )
 
 
 # ── Sistema ───────────────────────────────────────────────────────────────────

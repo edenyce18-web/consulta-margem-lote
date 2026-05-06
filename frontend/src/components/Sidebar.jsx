@@ -1,20 +1,61 @@
 import { useState } from "react";
 import {
   LayoutDashboard, Zap, Phone, MessageSquare, BookOpen,
-  Key, ChevronLeft, ChevronRight, LogOut,
+  Key, ChevronLeft, ChevronRight, LogOut, Shield, User,
 } from "lucide-react";
 
-const MENU = [
+const MENU_BASE = [
   { id: "dashboard",   label: "Início",       icon: LayoutDashboard },
   { id: "consultas",   label: "Higienização", icon: Zap },
   { id: "credenciais", label: "Credenciais",  icon: Key },
   { id: "catalogo",    label: "Catálogo",     icon: BookOpen },
+  { id: "perfil",      label: "Perfil",       icon: User },
   { id: "ura",         label: "URA",          icon: Phone },
   { id: "chat",        label: "Chat",         icon: MessageSquare },
 ];
 
+const MENU_ADMIN = { id: "admin", label: "Admin", icon: Shield };
+
+function CotaBar({ usuario, collapsed }) {
+  if (!usuario) return null;
+
+  const plano = usuario.plano || "basico";
+  const ilimitado = usuario.cpfs_mes_limite === -1 || plano === "enterprise" || plano === "admin";
+  const usado = usuario.cpfs_mes_usado || 0;
+  const limite = usuario.cpfs_mes_limite || 500;
+  const pct = ilimitado ? 0 : Math.min(100, Math.round((usado / limite) * 100));
+  const cor = pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-yellow-400" : "bg-blue-400";
+
+  if (collapsed) return null;
+
+  return (
+    <div className="px-3 py-2 border-t border-slate-700">
+      <p className="text-xs text-slate-400 mb-1 font-medium">CPFs este mês</p>
+      {ilimitado ? (
+        <p className="text-xs text-green-400 font-semibold">Ilimitado</p>
+      ) : (
+        <>
+          <div className="flex justify-between text-xs text-slate-400 mb-1">
+            <span>{usado.toLocaleString()}/{limite.toLocaleString()}</span>
+            <span>{pct}%</span>
+          </div>
+          <div className="w-full bg-slate-700 rounded-full h-1.5">
+            <div
+              className={`${cor} h-1.5 rounded-full transition-all duration-300`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Sidebar({ abaAtiva, onChangeAba, usuario, onLogout }) {
   const [collapsed, setCollapsed] = useState(false);
+
+  const isAdmin = usuario?.plano === "admin";
+  const menu = isAdmin ? [...MENU_BASE, MENU_ADMIN] : MENU_BASE;
 
   return (
     <aside
@@ -49,7 +90,7 @@ export default function Sidebar({ abaAtiva, onChangeAba, usuario, onLogout }) {
 
       {/* Nav items */}
       <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
-        {MENU.map(({ id, label, icon: Icon }) => {
+        {menu.map(({ id, label, icon: Icon }) => {
           const ativo = abaAtiva === id;
           const desabilitado = id === "ura" || id === "chat";
           return (
@@ -60,7 +101,9 @@ export default function Sidebar({ abaAtiva, onChangeAba, usuario, onLogout }) {
               title={collapsed ? label : undefined}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors
                 ${ativo
-                  ? "bg-blue-600 text-white"
+                  ? id === "admin"
+                    ? "bg-red-700 text-white"
+                    : "bg-blue-600 text-white"
                   : desabilitado
                   ? "text-slate-600 cursor-not-allowed"
                   : "text-slate-300 hover:bg-slate-800 hover:text-white"}
@@ -81,6 +124,9 @@ export default function Sidebar({ abaAtiva, onChangeAba, usuario, onLogout }) {
           );
         })}
       </nav>
+
+      {/* Cota bar */}
+      <CotaBar usuario={usuario} collapsed={collapsed} />
 
       {/* User area */}
       <div className="border-t border-slate-700 p-3 space-y-2">

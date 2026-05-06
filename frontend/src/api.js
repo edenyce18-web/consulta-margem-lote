@@ -152,4 +152,12 @@ export async function getAdaptadores() {
   return data.adaptadores;
 }
 
+// ── Admin ─────────────────────────────────────────────────────────────────────
+
+export const getAdmin = () => api.get('/admin/usuarios/').then(r => r.data);
+export const updateUserPlan = (id, data) => api.put(`/admin/usuarios/${id}/plano`, data).then(r => r.data);
+export const toggleUser = (id) => api.put(`/admin/usuarios/${id}/toggle`).then(r => r.data);
+export const getAdminStats = () => api.get('/admin/stats/').then(r => r.data);
+export const getPerfil = () => api.get('/auth/me').then(r => r.data);
+
 export default api;

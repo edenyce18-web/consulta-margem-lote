@@ -2,13 +2,36 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from app.config import settings
+import time
+import logging
 
-engine = create_engine(
-    settings.DATABASE_URL,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
-)
+logger = logging.getLogger(__name__)
+
+def create_engine_with_retry(database_url: str, max_retries: int = 10, retry_delay: float = 5.0):
+    """Cria engine do SQLAlchemy com retry logic para aguardar o banco subir."""
+    for attempt in range(max_retries):
+        try:
+            engine = create_engine(
+                database_url,
+                pool_pre_ping=True,
+                pool_size=10,
+                max_overflow=20,
+            )
+            # Testa a conexão
+            with engine.connect() as conn:
+                conn.execute("SELECT 1")
+            logger.info("Conexão com banco de dados estabelecida com sucesso.")
+            return engine
+        except Exception as e:
+            logger.warning(f"Tentativa {attempt + 1}/{max_retries} falhou: {e}")
+            if attempt < max_retries - 1:
+                logger.info(f"Aguardando {retry_delay}s antes da próxima tentativa...")
+                time.sleep(retry_delay)
+            else:
+                logger.error("Falha ao conectar ao banco de dados após todas as tentativas.")
+                raise
+
+engine = create_engine_with_retry(settings.DATABASE_URL)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -26,6 +49,27 @@ def get_db():
 def create_tables():
     from app import models  # noqa: F401 — garante que models são importados
     Base.metadata.create_all(bind=engine)
+
+
+def migrate_saas_columns():
+    """
+    Adiciona colunas SaaS ao modelo Usuario caso ainda não existam.
+    Seguro para rodar a cada startup.
+    """
+    from sqlalchemy import text
+    stmts = [
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS plano VARCHAR(20) NOT NULL DEFAULT 'basico'",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS cpfs_mes_limite INTEGER NOT NULL DEFAULT 500",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS cpfs_mes_usado INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS plano_ativo BOOLEAN NOT NULL DEFAULT true",
+    ]
+    with engine.connect() as conn:
+        for stmt in stmts:
+            try:
+                conn.execute(text(stmt))
+            except Exception:
+                pass
+        conn.commit()
 
 
 def ensure_indexes():
