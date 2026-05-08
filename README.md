@@ -81,6 +81,7 @@ consulta-margem-lote/
 | `exemplo`  | Simulador (sem portal real) | Não       | Ativo     |
 | `aki`      | AkiCapital                  | Não       | Ativo     |
 | `grid`     | GridSoftware / Roraima      | Sim       | Ativo     |
+| `bv`       | RF1Consig / Boa Vista       | Imagem    | Ativo     |
 
 ---
 
@@ -113,7 +114,7 @@ docker compose up --build
 
 ```bash
 curl http://localhost:8000/adaptadores/
-# {"adaptadores": ["aki", "exemplo", "grid"]}
+# {"adaptadores": ["aki", "bv", "exemplo", "grid"]}
 ```
 
 ### Upload de lote
@@ -129,6 +130,10 @@ curl -X POST "http://localhost:8000/upload-lote/?banco=aki" \
 
 # GridSoftware / Roraima
 curl -X POST "http://localhost:8000/upload-lote/?banco=grid" \
+  -F "arquivo=@cpfs.csv"
+
+# RF1Consig / Prefeitura de Boa Vista
+curl -X POST "http://localhost:8000/upload-lote/?banco=bv" \
   -F "arquivo=@cpfs.csv"
 ```
 
@@ -184,6 +189,68 @@ cpf
 - Apenas coluna `cpf` é obrigatória
 - CPF com ou sem formatação (123.456.789-09 ou 12345678909)
 - Limite: 5.000 CPFs por lote
+
+---
+
+## Robô local Boa Vista (Excel no computador)
+
+Para rodar sem abrir a interface web, use o script `backend/robo_boa_vista_excel.py`. Ele abre o Chromium pelo Playwright em modo automático, faz login no RF1Consig, resolve o código de segurança via 2Captcha, consulta cada CPF ou matrícula e grava as colunas de resultado na planilha de saída.
+
+### Preparar o ambiente local
+
+```bash
+cd consulta-margem-lote
+python -m venv .venv
+# Windows PowerShell: .venv\Scripts\Activate.ps1
+# Linux/macOS: source .venv/bin/activate
+pip install -r backend/requirements.txt
+python -m playwright install chromium
+```
+
+O RF1Consig de Boa Vista usa código de segurança/CAPTCHA no login. Para o robô trabalhar sozinho, configure obrigatoriamente uma chave 2Captcha em `TWOCAPTCHA_API_KEY` no `backend/.env`/ambiente ou informe a chave pelo parâmetro `--twocaptcha-api-key`. Sem essa chave, o script interrompe antes de iniciar porque não há etapa manual.
+
+### Formato da planilha
+
+A planilha pode ser `.xlsx`, `.xlsm`, `.xls` ou `.csv` e precisa conter uma destas colunas:
+
+- `cpf`
+- `matricula` / `matrícula`
+- `identificador`
+
+### Executar
+
+```bash
+python backend/robo_boa_vista_excel.py \
+  --arquivo servidores.xlsx \
+  --login 00000000000 \
+  --senha SUA_SENHA \
+  --twocaptcha-api-key SUA_CHAVE_2CAPTCHA
+```
+
+Por padrão, o robô usa a página de consulta/listagem da Prefeitura de Boa Vista:
+
+```text
+https://boavista.rf1consig.com.br/SGConsignataria/GESTOR/CADPessoaListar.aspx
+```
+
+O arquivo de saída será criado ao lado do original com o sufixo `_resultado`, por exemplo `servidores_resultado.xlsx`. Para escolher outro local:
+
+```bash
+python backend/robo_boa_vista_excel.py \
+  --arquivo servidores.xlsx \
+  --saida resultado_boa_vista.xlsx \
+  --login 00000000000 \
+  --senha SUA_SENHA \
+  --twocaptcha-api-key SUA_CHAVE_2CAPTCHA
+```
+
+Colunas gravadas no resultado:
+
+- `margem_emprestimo`
+- `margem_cartao_consignado`
+- `margem_cartao_beneficio`
+- `nome_titular`, `orgao`, `matricula_resultado`, `tipo_vinculo`
+- `status_consulta` e `mensagem_erro`
 
 ---
 

@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     # ── RF1Consig / Boa Vista ─────────────────────────────────────────────────
     RF1BV_URL: str = (
         "https://boavista.rf1consig.com.br/SGConsignataria/"
-        "ConsigAcessoUsuarioLogar.aspx"
+        "GESTOR/CADPessoaListar.aspx"
     )
 
     # ── 2Captcha ──────────────────────────────────────────────────────────────

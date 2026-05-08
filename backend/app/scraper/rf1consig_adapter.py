@@ -3,7 +3,7 @@ scraper/rf1consig_adapter.py
 ──────────────────────────────
 Adaptador para o portal RF1Consig — Consignatária Prefeitura de Boa Vista/RR.
 
-URL padrão: https://boavista.rf1consig.com.br/SGConsignataria/ConsigAcessoUsuarioLogar.aspx
+URL padrão: https://boavista.rf1consig.com.br/SGConsignataria/GESTOR/CADPessoaListar.aspx
 
 Login:
   - CPF do usuário (formatado automaticamente)
@@ -34,8 +34,8 @@ from app.scraper.base_adapter import (
 )
 from app.scraper.manager import AdapterManager
 from app.scraper.utils import (
-    formatar_cpf, pausa_humana, digitar_lento,
-    parse_moeda, resultado_erro, resultado_sem_margem,
+    formatar_cpf, limpar_cpf, validar_cpf, pausa_humana, digitar_lento,
+    parse_moeda, resultado_erro, resultado_sem_margem, resultado_cpf_invalido,
     clicar_seguro, salvar_screenshot,
 )
 from pathlib import Path
@@ -56,6 +56,10 @@ class RF1ConsigBoaVistaAdapter(BaseScraperAdapter):
     _URL_LOGIN_DEFAULT = (
         "https://boavista.rf1consig.com.br/SGConsignataria/"
         "ConsigAcessoUsuarioLogar.aspx"
+    )
+    _URL_CONSULTA_DEFAULT = (
+        "https://boavista.rf1consig.com.br/SGConsignataria/"
+        "GESTOR/CADPessoaListar.aspx"
     )
 
     # ── Seletores de login (ASP.NET WebForms — IDs renderizados) ─────────────
@@ -132,11 +136,34 @@ class RF1ConsigBoaVistaAdapter(BaseScraperAdapter):
         "#ContentPlaceHolder1_txtCPF",
         "#ContentPlaceHolder1_txtCpfServidor",
         "#ContentPlaceHolder1_txtPesquisa",
+        "#ContentPlaceHolder1_txtPesquisaCPF",
         "input[id*='txtCPF']",
         "input[id*='txtCpf']",
-        "input[id*='txtServidor']",
+        "input[id*='CPF']",
+        "input[id*='Cpf']",
         "input[placeholder*='CPF']",
         "input[placeholder*='cpf']",
+    ]
+    SEL_CAMPO_MATRICULA_CONSULTA = [
+        "#ContentPlaceHolder1_txtMatricula",
+        "#ContentPlaceHolder1_txtMatriculaServidor",
+        "#ContentPlaceHolder1_txtPesquisaMatricula",
+        "input[id*='txtMatricula']",
+        "input[id*='Matricula']",
+        "input[id*='Matrícula']",
+        "input[placeholder*='Matrícula']",
+        "input[placeholder*='Matricula']",
+        "input[placeholder*='matrícula']",
+        "input[placeholder*='matricula']",
+    ]
+    SEL_CAMPO_BUSCA_GERAL = [
+        "#ContentPlaceHolder1_txtPesquisa",
+        "#ContentPlaceHolder1_txtFiltro",
+        "input[id*='txtPesquisa']",
+        "input[id*='txtFiltro']",
+        "input[id*='txtBusca']",
+        "input[placeholder*='Pesquisa']",
+        "input[placeholder*='Busca']",
     ]
     SEL_BTN_CONSULTAR = [
         "#ContentPlaceHolder1_btnConsultar",
@@ -163,7 +190,7 @@ class RF1ConsigBoaVistaAdapter(BaseScraperAdapter):
         usuario_id: Optional[str] = None,
     ):
         super().__init__(credencial, usuario_id=usuario_id)
-        raw_url = (credencial or {}).get("url") or self._URL_LOGIN_DEFAULT
+        raw_url = (credencial or {}).get("url") or settings.RF1BV_URL or self._URL_CONSULTA_DEFAULT
         # Extrai parâmetro "consignataria=" da URL (se informado pelo usuário)
         self._consignataria_hint = self._extrair_param_consignataria(raw_url)
         # URL limpa (sem parâmetros customizados)
@@ -371,6 +398,8 @@ class RF1ConsigBoaVistaAdapter(BaseScraperAdapter):
 
         # Fallback: URL direta com padrões comuns do RF1Consig
         for path in [
+            "GESTOR/CADPessoaListar.aspx",
+            "CADPessoaListar.aspx",
             "ConsigConsultaMargem.aspx",
             "ConsigConsultarMargemServidor.aspx",
             "ConsigConsultaMargemServidor.aspx",
@@ -388,35 +417,105 @@ class RF1ConsigBoaVistaAdapter(BaseScraperAdapter):
 
         logger.error("[RF1BV] Não foi possível alcançar a página de consulta. URL: %s", page.url)
 
+    # ── Identificador CPF/matrícula ───────────────────────────────────────────
+
+    def _normalizar_identificador(self, valor: str) -> tuple[str, str, Optional[dict]]:
+        """Retorna (tipo, identificador, erro) para CPF ou matrícula."""
+        bruto = str(valor or "").strip()
+        if bruto.lower().startswith(("matricula:", "matrícula:")):
+            matricula_forcada = bruto.split(":", 1)[1].strip()
+            if matricula_forcada:
+                return "matricula", re.sub(r"\s+", "", matricula_forcada), None
+
+        somente_digitos = limpar_cpf(bruto)
+
+        if len(somente_digitos) == 11:
+            if not validar_cpf(somente_digitos):
+                return "cpf", somente_digitos, resultado_cpf_invalido(
+                    somente_digitos, self.NOME_BANCO
+                )
+            return "cpf", somente_digitos, None
+
+        # Matrículas costumam ser numéricas, mas mantemos letras se o portal usar
+        # prefixos/sufixos. O preenchimento usa o valor original sem espaços.
+        matricula = re.sub(r"\s+", "", bruto)
+        if matricula:
+            return "matricula", matricula, None
+
+        return "matricula", bruto, resultado_erro(
+            "Informe CPF válido ou matrícula.", bruto, self.NOME_BANCO
+        )
+
+    def consultar_com_page(self, page, cpf: str, context=None) -> dict:
+        """Consulta CPF ou matrícula usando uma página autenticada reutilizável."""
+        tipo, identificador, erro = self._normalizar_identificador(cpf)
+        if erro:
+            return erro
+
+        if not self._esta_logado(page):
+            logger.info(
+                "[RF1BV] Sessão expirada — re-autenticando para %s %s",
+                tipo, identificador,
+            )
+            self._invalidar_sessao()
+            self._fazer_login(page)
+            if context:
+                self._salvar_sessao(context)
+
+        try:
+            resultado = self._extrair_margem(page, identificador)
+            if "login" in page.url.lower() or "logar" in page.url.lower():
+                self._invalidar_sessao()
+                self._fazer_login(page)
+                if context:
+                    self._salvar_sessao(context)
+                resultado = self._extrair_margem(page, identificador)
+            return resultado
+        except Exception as exc:
+            logger.error("[RF1BV] Erro ao consultar %s %s: %s", tipo, identificador, exc)
+            return resultado_erro(str(exc), identificador, self.NOME_BANCO)
+
     # ── Extração de margem ────────────────────────────────────────────────────
 
     def _extrair_margem(self, page, cpf: str) -> dict:
         """
-        Consulta um CPF e extrai os dados de margem consignável.
-        Reutiliza a página de consulta se o campo CPF já estiver visível.
+        Consulta CPF ou matrícula e extrai os dados de margem consignável.
+        Reutiliza a página de consulta se o campo de busca já estiver visível.
         """
-        # Verifica se o campo CPF de consulta já está na página
-        sel_cpf = self._primeiro_seletor(page, self.SEL_CAMPO_CPF_CONSULTA, exigir_visivel=False)
+        tipo, identificador, erro = self._normalizar_identificador(cpf)
+        if erro:
+            return erro
 
-        if not sel_cpf:
+        seletores_preferidos = (
+            self.SEL_CAMPO_CPF_CONSULTA if tipo == "cpf"
+            else self.SEL_CAMPO_MATRICULA_CONSULTA
+        )
+        sel_busca = self._primeiro_seletor(
+            page, [*seletores_preferidos, *self.SEL_CAMPO_BUSCA_GERAL],
+            exigir_visivel=False,
+        )
+
+        if not sel_busca:
             self._navegar_para_consulta(page)
-            sel_cpf = self._primeiro_seletor(page, self.SEL_CAMPO_CPF_CONSULTA, exigir_visivel=False)
-
-        if not sel_cpf:
-            salvar_screenshot(page, "rf1bv_sem_campo_cpf", Path("/tmp/pw_sessions"))
-            return resultado_erro(
-                f"[RF1BV] Campo de CPF não encontrado na página de consulta (URL: {page.url}).",
-                cpf, self.NOME_BANCO,
+            sel_busca = self._primeiro_seletor(
+                page, [*seletores_preferidos, *self.SEL_CAMPO_BUSCA_GERAL],
+                exigir_visivel=False,
             )
 
-        # Limpa e preenche o CPF
-        cpf_formatado = formatar_cpf(cpf)
+        if not sel_busca:
+            salvar_screenshot(page, "rf1bv_sem_campo_busca", Path("/tmp/pw_sessions"))
+            return resultado_erro(
+                f"[RF1BV] Campo de CPF/matrícula não encontrado na página de consulta (URL: {page.url}).",
+                identificador, self.NOME_BANCO,
+            )
+
+        valor_busca = formatar_cpf(identificador) if tipo == "cpf" else identificador
         try:
-            loc = page.locator(sel_cpf).first
+            loc = page.locator(sel_busca).first
             loc.triple_click(timeout=3_000)
-            loc.fill(cpf_formatado)
+            loc.fill(valor_busca)
         except Exception:
-            page.fill(sel_cpf, cpf_formatado)
+            page.fill(sel_busca, valor_busca)
 
         pausa_humana(0.2, 0.5)
 
@@ -426,7 +525,7 @@ class RF1ConsigBoaVistaAdapter(BaseScraperAdapter):
         if sel_btn:
             clicou = self._clicar_com_fallback(page, sel_btn, timeout=8_000)
         if not clicou:
-            page.locator(sel_cpf).first.press("Enter")
+            page.locator(sel_busca).first.press("Enter")
 
         # Aguarda resultado
         try:
@@ -440,16 +539,45 @@ class RF1ConsigBoaVistaAdapter(BaseScraperAdapter):
                 "não encontrado", "sem margem", "nenhum registro",
                 "não possui", "cpf não",
             ]):
-                return resultado_sem_margem(cpf, self.NOME_BANCO)
+                return resultado_sem_margem(identificador, self.NOME_BANCO)
             # Pode ter redirecionado para login (sessão expirou)
             if "logar" in page.url.lower():
                 raise RuntimeError("Sessão expirada durante consulta — será re-autenticado.")
             return resultado_erro(
-                "Timeout aguardando resultado de consulta.", cpf, self.NOME_BANCO,
+                "Timeout aguardando resultado de consulta.", identificador, self.NOME_BANCO,
             )
 
         pausa_humana(0.3, 0.8)
-        return self._extrair_dados(page, cpf)
+        self._abrir_detalhe_se_necessario(page)
+        return self._extrair_dados(page, identificador)
+
+    def _abrir_detalhe_se_necessario(self, page) -> None:
+        """Abre a ficha do servidor quando a busca cai na lista CADPessoaListar."""
+        links_detalhe = [
+            "a:has-text('Consultar')",
+            "a:has-text('Selecionar')",
+            "a:has-text('Detalhar')",
+            "a:has-text('Visualizar')",
+            "input[value*='Consultar']",
+            "input[value*='Selecionar']",
+            "a[href*='CADPessoa']",
+            "a[href*='Margem']",
+        ]
+        for seletor in links_detalhe:
+            try:
+                loc = page.locator(seletor)
+                if loc.count() == 0 or not loc.first.is_visible():
+                    continue
+                loc.first.click(timeout=5_000)
+                try:
+                    page.wait_for_load_state("domcontentloaded", timeout=15_000)
+                except Exception:
+                    pass
+                pausa_humana(0.3, 0.8)
+                logger.info("[RF1BV] Detalhe do servidor aberto via seletor: %s", seletor)
+                return
+            except Exception:
+                continue
 
     def _extrair_dados(self, page, cpf: str) -> dict:
         """Extrai os campos de margem da página de resultado."""
@@ -467,8 +595,9 @@ class RF1ConsigBoaVistaAdapter(BaseScraperAdapter):
             "Margem Disponível Cartão", "Cartão de Crédito",
         ])
         margem_ben  = self._buscar_valor_moeda(page, [
+            "Margem de Cartão Benefício", "Margem Cartão Benefício",
+            "Cartão Benefício", "Cartao Beneficio",
             "Margem de Benefício", "Margem Benefício",
-            "Margem Consignável", "Margem Disponível",
         ])
 
         # Fallback: varre todas as células procurando valores R$
@@ -492,7 +621,7 @@ class RF1ConsigBoaVistaAdapter(BaseScraperAdapter):
             "margem_beneficio": margem_ben,
             "emprestimo_situacao":       "Disponível" if margem_emp and margem_emp > 0 else None,
             "cartao_credito_situacao":   "Disponível" if margem_cart and margem_cart > 0 else None,
-            "cartao_beneficio_situacao": None,
+            "cartao_beneficio_situacao": "Disponível" if margem_ben and margem_ben > 0 else None,
             "banco": self.NOME_BANCO,
             "dados_brutos": json.dumps({
                 "margem_emprestimo": str(margem_emp),
